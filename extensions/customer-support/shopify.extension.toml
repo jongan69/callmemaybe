@@ -1,0 +1,29 @@
+# CallmeMaybe — Customer Account UI Extension
+# https://shopify.dev/api/customer-account-ui-extensions/unstable/configuration
+
+api_version = "2026-07"
+
+[[extensions]]
+name = "customer-support"
+handle = "customer-support"
+type = "ui_extension"
+uid = "7ee3ea48-d481-f083-f4d0-e786c1ce833a899289f0"
+
+# Order status block — shows support case status on the order page
+[[extensions.targeting]]
+module = "./src/OrderStatusBlock.jsx"
+target = "customer-account.order-status.block.render"
+
+# Order action menu item — "Get support" button
+[[extensions.targeting]]
+module = "./src/GetSupportAction.jsx"
+target = "customer-account.order.action.menu-item.render"
+
+# Full-page support flow
+[[extensions.targeting]]
+module = "./src/FullPageSupport.jsx"
+target = "customer-account.order.action.render"
+
+[extensions.capabilities]
+api_access = true
+network_access = true

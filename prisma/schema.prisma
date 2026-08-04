@@ -1,0 +1,350 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:dev.sqlite"
+}
+
+// ─── Shopify Session (scaffold) ──────────────────────────────
+
+model Session {
+  id                  String    @id
+  shop                String
+  state               String
+  isOnline            Boolean   @default(false)
+  scope               String?
+  expires             DateTime?
+  accessToken         String
+  userId              BigInt?
+  firstName           String?
+  lastName            String?
+  email               String?
+  accountOwner        Boolean   @default(false)
+  locale              String?
+  collaborator        Boolean?  @default(false)
+  emailVerified       Boolean?  @default(false)
+  refreshToken        String?
+  refreshTokenExpires DateTime?
+}
+
+// ─── ResolveLine Domain Models ───────────────────────────────
+
+model ShopSettings {
+  id                          String   @id @default(cuid())
+  shopDomain                  String   @unique
+  shopifyShopId               String
+  storeName                   String   @default("My Store")
+  supportDepartmentName       String   @default("Support")
+  agentName                   String   @default("Riley")
+  timezone                    String   @default("America/New_York")
+  defaultLocale               String   @default("en-US")
+  supportHoursJson            String   @default("{\"start\":\"08:00\",\"end\":\"20:00\",\"timezone\":\"America/New_York\"}")
+  humanEscalationEmail        String?
+  humanEscalationPhoneEncrypted String?
+  callProviderMode             String   @default("fake")
+  realCallsEnabled             Boolean  @default(false)
+  confidenceThreshold          Float    @default(0.85)
+  maxCallsPerCustomerPerDay    Int      @default(2)
+  transcriptRetentionDays      Int      @default(30)
+  createdAt                    DateTime @default(now())
+  updatedAt                    DateTime @updatedAt
+
+  policies      SupportPolicy[]
+  knowledgeSources KnowledgeSource[]
+  supportCases  SupportCase[]
+}
+
+model SupportPolicy {
+  id              String   @id @default(cuid())
+  shopId          String
+  issueType        String
+  enabled         Boolean  @default(true)
+  mode            String   @default("APPROVAL")
+  conditionsJson  String   @default("{}")
+  customInstructions String?
+  version         Int      @default(1)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  shop ShopSettings @relation(fields: [shopId], references: [id])
+
+  @@unique([shopId, issueType])
+}
+
+model KnowledgeSource {
+  id              String   @id @default(cuid())
+  shopId          String
+  sourceType      String
+  externalId      String?
+  title           String
+  normalizedContent String
+  contentHash     String
+  appliesToJson   String   @default("[]")
+  status          String   @default("active")
+  sourceUpdatedAt DateTime?
+  syncedAt        DateTime @default(now())
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  shop ShopSettings @relation(fields: [shopId], references: [id])
+}
+
+model SupportCase {
+  id                      String   @id @default(cuid())
+  publicReference         String   @unique
+  shopId                  String
+  shopifyOrderId          String
+  shopifyOrderName        String
+  shopifyCustomerId       String
+  issueType               String
+  customerIssueSummary    String?
+  status                  String   @default("REQUESTED")
+  resolutionMode          String?
+  riskLevel               String?
+  customerNameEncrypted   String?
+  customerEmailEncrypted  String?
+  customerPhoneEncrypted  String?
+  customerPhoneHash       String?
+  customerPhoneLastFour   String?
+  orderSnapshotJson       String?
+  orderSnapshotHash       String?
+  knowledgeSnapshotJson   String?
+  policySnapshotJson      String?
+  requestedAt             DateTime @default(now())
+  resolvedAt              DateTime?
+  closedAt                DateTime?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  shop                    ShopSettings       @relation(fields: [shopId], references: [id])
+  consent                 CallbackConsent?
+  verificationChallenge   VerificationChallenge?
+  callPlans               CallPlan[]
+  callAttempts            CallAttempt[]
+  resolutionProposals     ResolutionProposal[]
+  auditEvents             AuditEvent[]
+}
+
+model CallbackConsent {
+  id                      String   @id @default(cuid())
+  supportCaseId           String   @unique
+  consentTextVersion      String
+  consentText             String
+  phoneHash               String
+  customerId              String
+  orderId                 String
+  sessionTokenSubjectHash String?
+  ipHash                  String?
+  userAgentSummary        String?
+  consentedAt             DateTime @default(now())
+  revokedAt               DateTime?
+
+  supportCase SupportCase @relation(fields: [supportCaseId], references: [id])
+}
+
+model VerificationChallenge {
+  id            String    @id @default(cuid())
+  supportCaseId String    @unique
+  codeHash      String
+  expiresAt     DateTime
+  maxAttempts   Int       @default(2)
+  attemptsUsed  Int       @default(0)
+  verifiedAt    DateTime?
+  invalidatedAt DateTime?
+  createdAt     DateTime  @default(now())
+
+  supportCase SupportCase @relation(fields: [supportCaseId], references: [id])
+}
+
+// An order that cannot ship and whose customer has stopped answering email.
+// Detected by a Shopify sync in production; seeded for the demo. Carrier fields
+// are populated when the carrier claims delivery the customer disputes, which
+// is what makes the order eligible for a carrier trace leg.
+model StuckOrder {
+  id                  String    @id @default(cuid())
+  shopId              String
+  shopifyOrderId      String
+  shopifyOrderName    String
+  shopifyCustomerId   String
+  customerName        String
+  customerPhone       String
+  blockerDescription  String
+  emailAttempts       Int       @default(0)
+  valueMinor          Int       @default(0)
+  currencyCode        String    @default("USD")
+
+  carrierName         String?
+  carrierSupportPhone String?
+  trackingNumber      String?
+  shipDate            String?
+  deliveryClaimDate   String?
+  shipToSummary       String?
+
+  detectedAt          DateTime  @default(now())
+  resolvedAt          DateTime?
+
+  @@unique([shopId, shopifyOrderId])
+}
+
+model CallPlan {
+  id                       String   @id @default(cuid())
+  supportCaseId            String
+  version                  Int      @default(1)
+  taskTextEncrypted        String
+  resultSchemaJson         String
+  recipientResultSchemaJson String?
+  metadataJson             String
+  idempotencyKey           String   @unique
+
+  // Who this leg dials. CUSTOMER legs dial the phone stored on the support
+  // case. THIRD_PARTY legs dial a carrier, courier, or supplier, so they carry
+  // their own recipient and are never gated on customer identity verification.
+  recipientKind            String   @default("CUSTOMER")
+  recipientPhoneEncrypted  String?
+  recipientLabel           String?
+  approvedBy               String?
+  approvedAt               DateTime?
+  createdAt                DateTime @default(now())
+
+  supportCase  SupportCase  @relation(fields: [supportCaseId], references: [id])
+  callAttempts CallAttempt[]
+}
+
+model CallAttempt {
+  id                          String   @id @default(cuid())
+  supportCaseId               String
+  callPlanId                  String
+  attemptNumber               Int
+  provider                    String   @default("calle")
+  providerCallId              String?
+  status                      String   @default("PENDING")
+  outcome                     String?
+  taskCompleted               Boolean?
+  completionConfidenceScore   Float?
+  completionConfidenceLabel   String?
+  structuredResultJson        String?
+  summary                     String?
+  evidenceJson                String?
+  transcriptEncrypted         String?
+  transcriptRedacted          String?
+  providerResponseSanitizedJson String?
+  errorCode                   String?
+  errorMessage                String?
+  startedAt                   DateTime?
+  connectedAt                 DateTime?
+  completedAt                 DateTime?
+  createdAt                   DateTime @default(now())
+  updatedAt                   DateTime @updatedAt
+
+  supportCase SupportCase @relation(fields: [supportCaseId], references: [id])
+  callPlan    CallPlan    @relation(fields: [callPlanId], references: [id])
+  callEvents  CallEvent[]
+}
+
+model CallEvent {
+  id                   String   @id @default(cuid())
+  callAttemptId        String
+  providerEventId      String
+  eventType            String
+  eventTime            DateTime
+  sequence             Int
+  sanitizedPayloadJson String?
+  payloadHash          String?
+  createdAt            DateTime @default(now())
+
+  callAttempt CallAttempt @relation(fields: [callAttemptId], references: [id])
+
+  @@unique([callAttemptId, providerEventId])
+}
+
+model ResolutionProposal {
+  id                  String   @id @default(cuid())
+  supportCaseId       String
+  callAttemptId       String?
+  actionType          String
+  status              String   @default("PENDING")
+  riskLevel           String?
+  policyDecisionJson  String?
+  proposedInputJson   String?
+  beforeStateJson     String?
+  financialImpactJson String?
+  requiresApproval    Boolean  @default(true)
+  approvedBy          String?
+  approvedAt          DateTime?
+  rejectedBy          String?
+  rejectedAt          DateTime?
+  rejectionReason     String?
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  supportCase SupportCase       @relation(fields: [supportCaseId], references: [id])
+  executions  ResolutionExecution[]
+}
+
+model ResolutionExecution {
+  id                  String   @id @default(cuid())
+  resolutionProposalId String
+  idempotencyKey      String   @unique
+  status              String   @default("PENDING")
+  shopifyMutation     String?
+  requestJson         String?
+  responseJson        String?
+  userErrorsJson      String?
+  beforeStateJson     String?
+  afterStateJson      String?
+  startedAt           DateTime?
+  completedAt         DateTime?
+  createdAt           DateTime @default(now())
+
+  proposal ResolutionProposal @relation(fields: [resolutionProposalId], references: [id])
+}
+
+model WebhookReceipt {
+  id              String   @id @default(cuid())
+  provider        String
+  externalEventId String?
+  payloadHash     String
+  signatureValid  Boolean  @default(false)
+  processed       Boolean  @default(false)
+  processingError String?
+  receivedAt      DateTime @default(now())
+  processedAt     DateTime?
+
+  @@unique([provider, payloadHash])
+}
+
+model AuditEvent {
+  id              String   @id @default(cuid())
+  shopId          String
+  supportCaseId   String?
+  actorType       String
+  actorId         String?
+  action          String
+  resourceType    String
+  resourceId      String?
+  requestId       String
+  beforeHash      String?
+  afterHash       String?
+  metadataJson    String?
+  createdAt       DateTime @default(now())
+
+  supportCase SupportCase? @relation(fields: [supportCaseId], references: [id])
+}
+
+model UsageLedger {
+  id                String   @id @default(cuid())
+  shopId            String
+  supportCaseId     String?
+  callAttemptId     String?
+  usageType         String
+  quantity          Int      @default(1)
+  unit              String   @default("call")
+  estimatedCostMinor Int?
+  currencyCode      String   @default("USD")
+  occurredAt        DateTime @default(now())
+}

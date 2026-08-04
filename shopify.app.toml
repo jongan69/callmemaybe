@@ -1,0 +1,34 @@
+# CallmeMaybe - Shopify App Configuration
+# Learn more: https://shopify.dev/docs/apps/tools/cli/configuration
+
+client_id = "6938bd7b8b68a62d336d214686fad27f"
+name = "callmemaybe"
+application_url = "https://example.com"
+embedded = true
+
+[access_scopes]
+# Required scopes for CallmeMaybe
+# read_orders, write_orders - order management and address updates
+# read_customers - customer data access
+# read_products - product info for support context
+# read_legal_policies - store policies for knowledge sync
+scopes = "write_products,read_orders,write_orders,read_customers,read_products,read_legal_policies"
+
+[webhooks]
+api_version = "2026-10"
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/uninstalled"
+  topics = [ "app/uninstalled" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/app/scopes_update"
+  topics = [ "app/scopes_update" ]
+
+
+[auth]
+redirect_urls = [ "https://example.com/api/auth" ]
+
+[build]
+include_config_on_deploy = true
+automatically_update_urls_on_dev = true
