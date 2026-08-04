@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>CallmeMaybe — Phone work for Shopify stores, done by an agent and gated by policy</title>
+  <meta name="description" content="AI phone calls for Shopify stores. Call carriers, reach customers who ignore email, and resolve stuck orders — with every action gated by a deterministic policy engine.">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0a0a0b;
+      --surface: #141416;
+      --surface-raised: #1c1c1f;
+      --border: #2a2a2e;
+      --text-primary: #f1f1f3;
+      --text-secondary: #a0a0aa;
+      --accent: #5b5fe3;
+      --accent-glow: rgba(91, 95, 227, 0.15);
+      --green: #2dd4a8;
+      --amber: #f5a623;
+      --red: #f06565;
+      --radius: 12px;
+      --radius-sm: 8px;
+    }
+
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text-primary);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .container { max-width: 900px; margin: 0 auto; padding: 0 24px; }
+
+    /* ── Nav ──────────────────────────── */
+    nav {
+      position: sticky; top: 0; z-index: 10;
+      background: rgba(10,10,11,0.85);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+    }
+    nav .inner {
+      display: flex; align-items: center; justify-content: space-between;
+      height: 56px; max-width: 900px; margin: 0 auto; padding: 0 24px;
+    }
+    nav .logo { font-weight: 700; font-size: 1.05rem; letter-spacing: -0.01em; }
+    nav .logo span { color: var(--accent); }
+    nav a { color: var(--text-secondary); text-decoration: none; font-size: 0.875rem; transition: color 0.15s; }
+    nav a:hover { color: var(--text-primary); }
+    nav .links { display: flex; gap: 20px; }
+
+    /* ── Hero ─────────────────────────── */
+    .hero { padding: 80px 0 64px; text-align: center; }
+    .hero .badge {
+      display: inline-block; padding: 4px 14px;
+      border: 1px solid var(--border); border-radius: 999px;
+      font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 24px;
+    }
+    .hero h1 {
+      font-size: clamp(2rem, 5vw, 3.2rem); font-weight: 800;
+      letter-spacing: -0.025em; line-height: 1.15; margin-bottom: 20px;
+    }
+    .hero h1 span { color: var(--accent); }
+    .hero p.sub {
+      font-size: 1.15rem; color: var(--text-secondary); max-width: 580px;
+      margin: 0 auto 36px; line-height: 1.55;
+    }
+    .hero .actions { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+    .btn {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 10px 22px; border-radius: var(--radius-sm);
+      font-size: 0.925rem; font-weight: 600; text-decoration: none;
+      cursor: pointer; transition: all 0.15s; border: none;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { filter: brightness(1.15); }
+    .btn-secondary { background: var(--surface-raised); color: var(--text-primary); border: 1px solid var(--border); }
+    .btn-secondary:hover { background: var(--border); }
+
+    /* ── Sections ─────────────────────── */
+    section { padding: 64px 0; }
+    section + section { border-top: 1px solid var(--border); }
+    h2 {
+      font-size: 1.75rem; font-weight: 700; letter-spacing: -0.02em;
+      margin-bottom: 12px;
+    }
+    .section-intro { color: var(--text-secondary); margin-bottom: 36px; font-size: 1.05rem; max-width: 640px; }
+
+    /* ── Flow diagram ─────────────────── */
+    .flow {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 32px 28px;
+      overflow-x: auto; font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 0.8rem; line-height: 1.7; color: var(--text-secondary);
+      white-space: pre; margin-bottom: 32px;
+    }
+    .flow b { color: var(--text-primary); font-weight: 600; }
+    .flow em { color: var(--accent); font-style: normal; }
+
+    /* ── Two legs ─────────────────────── */
+    .legs { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+    @media (max-width: 640px) { .legs { grid-template-columns: 1fr; } }
+    .leg {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 28px;
+    }
+    .leg .icon { font-size: 1.5rem; margin-bottom: 12px; }
+    .leg h3 { font-size: 1.1rem; font-weight: 700; margin-bottom: 8px; }
+    .leg p { color: var(--text-secondary); font-size: 0.925rem; line-height: 1.55; }
+    .leg .tag {
+      display: inline-block; margin-top: 14px; padding: 3px 10px;
+      border-radius: 999px; font-size: 0.75rem; font-weight: 600;
+    }
+    .tag-carrier { background: rgba(91,95,227,0.12); color: var(--accent); }
+    .tag-customer { background: rgba(45,212,168,0.12); color: var(--green); }
+
+    /* ── Safety grid ──────────────────── */
+    .safety-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+    @media (max-width: 640px) { .safety-grid { grid-template-columns: 1fr; } }
+    .safety-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 24px;
+    }
+    .safety-card h4 { font-size: 0.95rem; font-weight: 700; margin-bottom: 6px; display: flex; align-items: center; gap: 8px; }
+    .safety-card p { color: var(--text-secondary); font-size: 0.875rem; line-height: 1.5; }
+    .check { color: var(--green); font-weight: 700; }
+
+    /* ── Policy matrix ────────────────── */
+    .policy-table {
+      width: 100%; border-collapse: collapse; font-size: 0.875rem;
+      margin-top: 24px;
+    }
+    .policy-table th {
+      text-align: left; padding: 10px 14px;
+      font-weight: 600; font-size: 0.75rem; text-transform: uppercase;
+      letter-spacing: 0.06em; color: var(--text-secondary);
+      border-bottom: 1px solid var(--border);
+    }
+    .policy-table td {
+      padding: 10px 14px; border-bottom: 1px solid var(--border);
+    }
+    .policy-table tr:last-child td { border-bottom: none; }
+    .mode-auto { color: var(--green); font-weight: 600; }
+    .mode-approval { color: var(--amber); font-weight: 600; }
+    .mode-info { color: var(--text-secondary); }
+
+    /* ── Tech stack ───────────────────── */
+    .tech-stack { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
+    .tech-pill {
+      padding: 6px 16px; border-radius: 999px;
+      background: var(--surface-raised); border: 1px solid var(--border);
+      font-size: 0.85rem; font-weight: 500; color: var(--text-secondary);
+    }
+    .tech-pill strong { color: var(--text-primary); font-weight: 600; }
+
+    /* ── Footer ───────────────────────── */
+    footer {
+      padding: 48px 0; border-top: 1px solid var(--border);
+      text-align: center; color: var(--text-secondary); font-size: 0.85rem;
+    }
+    footer a { color: var(--accent); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    /* ── Highlight inline ─────────────── */
+    .hl { color: var(--accent); }
+    .hl-g { color: var(--green); }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="inner">
+    <div class="logo">Callme<span>Maybe</span></div>
+    <div class="links">
+      <a href="#what">What it does</a>
+      <a href="#safety">Safety</a>
+      <a href="#stack">Stack</a>
+      <a href="https://github.com/jongan69/callmemaybe">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="container">
+    <div class="badge">CALL-E Hackathon · Shopify App</div>
+    <h1>Phone work for <span>Shopify stores</span>,<br>done by an agent and gated by policy</h1>
+    <p class="sub">
+      Call carriers that have no API. Reach customers who ignore email.
+      Resolve stuck orders that would otherwise be refunded.
+      Every action gated by a deterministic policy engine — the AI gathers evidence, it never authorises.
+    </p>
+    <div class="actions">
+      <a href="https://github.com/jongan69/callmemaybe" class="btn btn-primary">View on GitHub</a>
+      <a href="#what" class="btn btn-secondary">How it works</a>
+    </div>
+  </div>
+</header>
+
+<section id="what">
+  <div class="container">
+    <h2>What it actually does</h2>
+    <p class="section-intro">
+      Two call legs. The AI places calls, navigates phone trees, holds, talks to humans,
+      and returns structured evidence. A separate policy engine decides what to do with it.
+    </p>
+
+    <div class="legs">
+      <div class="leg">
+        <div class="icon">📞</div>
+        <h3>Carrier leg</h3>
+        <p>
+          The carrier says delivered, the customer says otherwise. CallmeMaybe calls the carrier,
+          navigates the IVR, holds for an agent, opens a package trace, and returns a trace reference,
+          carrier disposition, promised response date, and hold time — as structured data.
+        </p>
+        <span class="tag tag-carrier">API of last resort</span>
+      </div>
+      <div class="leg">
+        <div class="icon">📱</div>
+        <h3>Customer leg</h3>
+        <p>
+          The order can't ship and the customer stopped answering email. CallmeMaybe calls them,
+          challenges a one-time verification code before disclosing anything, captures one clear
+          resolution decision, reads consequential details back, and records spoken confirmation.
+        </p>
+        <span class="tag tag-customer">Escalation channel</span>
+      </div>
+    </div>
+
+    <div class="flow">
+ <b>trigger</b>                  <em>CALL-E</em>                        <b>policy</b>                     <b>Shopify</b>
+ ────────────────────────────────────────────────────────────────────────────
+ merchant sees a  ──▶  places the call,  ──▶  deterministic    ──▶  re-read order,
+ blocked order,        holds, navigates        engine decides         abort if it
+ or customer           the IVR, adapts,       automatic /            drifted,
+ requests support      returns a              approval /             mutate, write
+                       schema-valid result    escalate               a receipt
+    </div>
+  </div>
+</section>
+
+<section id="safety">
+  <div class="container">
+    <h2>Safety architecture</h2>
+    <p class="section-intro">
+      An LLM deciding to cancel an order is a liability. CallmeMaybe keeps the model on the side
+      of the line where it's good — holding a conversation — and keeps authorisation entirely
+      deterministic.
+    </p>
+
+    <div class="safety-grid">
+      <div class="safety-card">
+        <h4><span class="check">✓</span> Model never authorises</h4>
+        <p><code>policy.server.ts</code> is a pure function over a policy record, an order snapshot,
+        and the call result. Same inputs, same decision, every time. No model call in the path.</p>
+      </div>
+      <div class="safety-card">
+        <h4><span class="check">✓</span> Irreversible → approval</h4>
+        <p>Cancellations, returns and carrier traces default to <code>APPROVAL</code>. Refunds and
+        replacements are never automatic — they write a note for a human.</p>
+      </div>
+      <div class="safety-card">
+        <h4><span class="check">✓</span> Identity before disclosure</h4>
+        <p>A one-time code, two attempts, and the task instruction forbids revealing order details
+        before the code is satisfied.</p>
+      </div>
+      <div class="safety-card">
+        <h4><span class="check">✓</span> Drift check before mutation</h4>
+        <p>Before executing, the system re-reads the order from Shopify and compares it to the
+        snapshot the decision was based on. Any change to fulfillment status, financial status,
+        or cancellation aborts the execution.</p>
+      </div>
+    </div>
+
+    <table class="policy-table">
+      <thead>
+        <tr>
+          <th>Issue type</th>
+          <th>Requires verification</th>
+          <th>Default mode</th>
+          <th>Max one action</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Address change</td>
+          <td>Customer</td>
+          <td class="mode-auto">AUTOMATIC</td>
+          <td>Yes</td>
+        </tr>
+        <tr>
+          <td>Cancellation</td>
+          <td>Customer</td>
+          <td class="mode-approval">APPROVAL</td>
+          <td>Yes</td>
+        </tr>
+        <tr>
+          <td>Return / exchange</td>
+          <td>Customer</td>
+          <td class="mode-approval">APPROVAL</td>
+          <td>Yes</td>
+        </tr>
+        <tr>
+          <td>Delivery problem</td>
+          <td>Customer</td>
+          <td class="mode-auto">AUTOMATIC</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>Carrier trace</td>
+          <td>None</td>
+          <td class="mode-approval">APPROVAL</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>Order status inquiry</td>
+          <td>Customer</td>
+          <td class="mode-info">INFORMATIONAL</td>
+          <td>—</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section id="stack">
+  <div class="container">
+    <h2>Tech stack</h2>
+    <p class="section-intro">
+      Three external dependencies. No analytics, no error tracker, no email provider.
+    </p>
+
+    <div class="tech-stack">
+      <span class="tech-pill"><strong>React Router v7</strong> + Shopify App Framework</span>
+      <span class="tech-pill"><strong>Prisma</strong> + SQLite</span>
+      <span class="tech-pill"><strong>Polaris</strong> + App Bridge</span>
+      <span class="tech-pill"><strong>CALL-E</strong> TypeScript SDK</span>
+      <span class="tech-pill"><strong>Shopify</strong> Admin GraphQL</span>
+      <span class="tech-pill"><strong>AES-256-GCM</strong> at rest</span>
+      <span class="tech-pill"><strong>Shopify CLI</strong> + Cloudflare</span>
+    </div>
+
+    <div style="margin-top: 36px;">
+      <h3 style="font-size:1.05rem;margin-bottom:12px;">Quick start</h3>
+      <div class="flow" style="margin-bottom:0;">
+ npm install
+ cp .env.example .env
+ npx prisma migrate dev
+ npx tsx prisma/seed.ts
+ npm run verify:calle
+ shopify app dev
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <p>
+      Built for the CALL-E Hackathon. Licensed under
+      <a href="https://github.com/jongan69/callmemaybe/blob/main/LICENSE">MIT</a>.
+      <a href="https://github.com/jongan69/callmemaybe">GitHub</a>
+    </p>
+  </div>
+</footer>
+
+</body>
+</html>
