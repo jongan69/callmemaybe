@@ -216,7 +216,7 @@ export async function buildCallPlan(params: {
     1,
   );
 
-  const taskText = buildTaskTextForIssue(params, policy.customInstructions ?? "");
+  const taskText = await buildTaskTextForIssue(params, policy.customInstructions ?? "");
   const resultSchema = getResultSchema(params.issueType);
 
   const metadata = {
@@ -264,7 +264,10 @@ export async function buildCallPlan(params: {
 // support code to give, and a customer who is not expecting the call needs to be
 // told why it is happening before anything else. Dispatching here keeps that
 // choice in one place.
-function buildTaskTextForIssue(
+//
+// When an LLM is configured, richer context-aware instructions are generated
+// dynamically. Falls back to the static templates on any failure.
+async function buildTaskTextForIssue(
   params: {
     agentName: string;
     storeName: string;
@@ -276,7 +279,11 @@ function buildTaskTextForIssue(
     stuckOrder?: StuckOrderContext;
   },
   policyInstructions: string,
-): string {
+): Promise<string> {
+  // Try LLM-generated instructions first.
+  const { generateCarrierTaskText, generateCustomerTaskText, llmAvailable } =
+    await import("./llm.server");
+
   if (params.issueType === "CARRIER_TRACE") {
     if (!params.carrier) {
       throw createError(
@@ -286,6 +293,25 @@ function buildTaskTextForIssue(
         { retryable: false },
       );
     }
+
+    if (llmAvailable()) {
+      const generated = await generateCarrierTaskText({
+        agentName: params.agentName,
+        storeName: params.storeName,
+        carrierName: params.carrier.carrierName,
+        trackingNumber: params.carrier.trackingNumber,
+        shipDate: params.carrier.shipDate,
+        deliveryClaimDate: params.carrier.deliveryClaimDate,
+        shipToSummary: params.carrier.shipToSummary,
+        merchantAccountNumber: params.carrier.merchantAccountNumber,
+        policyInstructions,
+        orderContext: params.orderSnapshot
+          ? `Order ${params.orderName ?? params.orderSnapshot.orderId}, status: ${params.orderSnapshot.fulfillmentStatus}`
+          : undefined,
+      });
+      if (generated) return generated;
+    }
+
     return buildCarrierTraceTask({
       agentName: params.agentName,
       storeName: params.storeName,
@@ -303,6 +329,19 @@ function buildTaskTextForIssue(
         { retryable: false },
       );
     }
+
+    if (llmAvailable()) {
+      const generated = await generateCustomerTaskText({
+        agentName: params.agentName,
+        storeName: params.storeName,
+        issueType: params.issueType,
+        orderName: params.orderName ?? params.orderSnapshot.orderId,
+        orderContext: params.stuckOrder.blockerDescription,
+        policyInstructions,
+      });
+      if (generated) return generated;
+    }
+
     return buildStuckOrderOutreachTask({
       agentName: params.agentName,
       storeName: params.storeName,
@@ -312,6 +351,19 @@ function buildTaskTextForIssue(
       policyInstructions,
       ...params.stuckOrder,
     });
+  }
+
+  // Customer-initiated calls (ADDRESS_CHANGE, CANCELLATION, etc.)
+  if (llmAvailable()) {
+    const generated = await generateCustomerTaskText({
+      agentName: params.agentName,
+      storeName: params.storeName,
+      issueType: params.issueType,
+      orderName: params.orderName ?? params.orderSnapshot.orderId,
+      orderContext: `Issue: ${params.issueType}. Order status: ${params.orderSnapshot.fulfillmentStatus}.`,
+      policyInstructions,
+    });
+    if (generated) return generated;
   }
 
   return buildTaskTemplate({

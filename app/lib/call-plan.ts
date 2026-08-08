@@ -18,8 +18,12 @@ export type StuckOrderContext = {
 };
 
 // Pure call-plan construction: the task instruction CALL-E speaks from, and the
-// JSON Schema it extracts the structured result into. Kept free of database and
-// provider imports so it can be exercised standalone by scripts/verify-calle.ts.
+// JSON Schema it extracts the structured result into.
+//
+// The static templates below are the fallback. When an LLM provider is configured
+// (DEEPSEEK_API_KEY or OPENAI_API_KEY), the async generate* functions in
+// app/services/llm.server.ts produce richer, order-specific instructions. Both
+// paths output the same schema, so the policy engine is unaffected.
 
 export function buildTaskTemplate(params: {
   agentName: string;
@@ -32,13 +36,13 @@ export function buildTaskTemplate(params: {
   return `You are ${params.agentName}, an AI customer-support assistant calling on behalf of ${params.storeName}.
 
 SECURITY AND DISCLOSURE
-- Open by identifying ${params.storeName}.
+- Open by identifying ${params.storeName} and why you are calling.
 - Clearly state that you are an AI assistant.
 - State that the call may be transcribed.
-- Do not disclose order details before verification.
-- Ask for the six-digit support code.
-- Valid code: ${params.verificationCode}
-- Allow no more than two attempts. Never reveal the code.
+- Do not disclose order details before identity is confirmed.
+- Ask the person to confirm their name and the order number.
+- If name or order number do not match, politely end the call.
+- Do NOT ask for codes, passwords, OTPs, or payment details.
 
 CASE PURPOSE
 Issue type: ${params.issueType}
@@ -168,11 +172,10 @@ DISCLOSURE
 
 VERIFICATION
 - Do not disclose order contents, address, or payment details before verification.
-- Ask for the six-digit code sent by email and text.
-- Valid code: ${params.verificationCode}
-- Allow no more than two attempts. Never reveal the code.
-- If the person cannot produce the code, tell them they can resolve it from their
-  account page instead, and end the call without disclosing order details.
+- Ask the person to confirm their name and the order number ${params.orderName}.
+- If the name or order number do not match, tell them they can resolve this from
+  their account page instead, and end the call without disclosing order details.
+- Do NOT ask for codes, passwords, OTPs, or payment details.
 
 WHAT TO RESOLVE
 ${params.blockerDescription}
@@ -334,6 +337,7 @@ export function getResultSchema(issueType: string): Record<string, unknown> {
             "delivered_confirmed",
             "misdelivered",
             "lost",
+            "delayed",
             "claim_window_closed",
             "requires_online_filing",
             "unknown",

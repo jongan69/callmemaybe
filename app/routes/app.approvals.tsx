@@ -7,12 +7,16 @@ import prisma from "../db.server";
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
 
+  const settings = await prisma.shopSettings.findUnique({
+    where: { shopDomain: session.shop },
+  });
+
   const proposals = await prisma.resolutionProposal.findMany({
     where: {
       status: "PENDING",
       requiresApproval: true,
       supportCase: {
-        shopId: session.id,
+        shopId: settings?.id ?? "",
         status: "AWAITING_APPROVAL",
       },
     },

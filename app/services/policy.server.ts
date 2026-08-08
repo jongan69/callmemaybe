@@ -207,6 +207,14 @@ export function evaluatePolicy(
       actionType = "ESCALATE";
       riskLevel = "HIGH";
       break;
+    case "CARRIER_TRACE":
+      actionType = "ADD_NOTE";
+      riskLevel = "LOW";
+      break;
+    case "STUCK_ORDER_OUTREACH":
+      actionType = "ADD_NOTE";
+      riskLevel = "MEDIUM";
+      break;
     default:
       actionType = "ESCALATE";
       riskLevel = "MEDIUM";

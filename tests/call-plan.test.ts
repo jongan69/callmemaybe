@@ -265,7 +265,8 @@ describe("task templates", () => {
     assert.ok(whyIndex > -1 && verifyIndex > whyIndex, "reason must come first");
     assert.match(text, /#1051/);
     assert.match(text, /emailed the customer 2 time\(s\)/);
-    assert.match(text, /482910/);
+    // Verification now uses name + order confirmation, not codes
+    assert.match(text, /confirm their name/);
   });
 
   test("both customer-facing templates gate disclosure on verification", () => {
@@ -290,8 +291,7 @@ describe("task templates", () => {
 
     for (const text of [outreach, standard]) {
       assert.match(text, /Do not disclose order/i);
-      assert.match(text, /no more than two attempts/i);
-      assert.match(text, /Never reveal the code/i);
+      assert.match(text, /Do NOT ask for codes/i);
     }
   });
 });

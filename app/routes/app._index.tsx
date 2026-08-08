@@ -3,11 +3,22 @@ import { useLoaderData, useFetcher } from "react-router";
 import { authenticate } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { getCasesForShop } from "../services/support-case.server";
+import prisma from "../db.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
 
-  const cases = await getCasesForShop(session.id);
+  // Ensure settings exist.
+  let settings = await prisma.shopSettings.findUnique({
+    where: { shopDomain: session.shop },
+  });
+  if (!settings) {
+    settings = await prisma.shopSettings.create({
+      data: { shopDomain: session.shop, shopifyShopId: session.id },
+    });
+  }
+
+  const cases = await getCasesForShop(settings.id);
   const openCases = cases.filter((c) =>
     ["REQUESTED", "PREPARING_CALL", "CALL_SUBMITTED", "CALLING", "PROCESSING_RESULT"].includes(c.status),
   ).length;

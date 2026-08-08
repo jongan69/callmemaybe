@@ -283,7 +283,7 @@ async function runAction(
       );
 
     case "ADD_NOTE":
-      return addOrderNote(admin, orderId, String(input.summary ?? "CallmeMaybe note."));
+      return addOrderNote(admin, orderId, buildOrderNote(actionType, input));
 
     // Returns, refunds and replacements touch money and inventory. They are
     // deliberately not automated: the proposal is recorded and a note is written
@@ -304,6 +304,30 @@ async function runAction(
         "That resolution type cannot be applied automatically.",
       );
   }
+}
+
+function buildOrderNote(
+  actionType: ResolutionActionType,
+  input: Record<string, unknown>,
+): string {
+  if (actionType === "ADD_NOTE" && input.trace_opened) {
+    // Carrier trace result — write a structured note the merchant can act on.
+    const ref = input.trace_reference || "no reference provided";
+    const disposition = input.carrier_disposition || "unknown";
+    const promised = input.promised_response_by || "no ETA given";
+    const hold = input.hold_time_minutes ? `${input.hold_time_minutes} min hold` : "";
+    return [
+      `📞 CallmeMaybe carrier trace`,
+      `Trace: ${ref}`,
+      `Status: ${disposition}`,
+      `Expected: ${promised}`,
+      hold,
+      input.summary || "",
+    ]
+      .filter(Boolean)
+      .join(" | ");
+  }
+  return String(input.summary ?? "CallmeMaybe note.");
 }
 
 async function markCaseResolved(

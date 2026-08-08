@@ -3,6 +3,7 @@ import { useLoaderData } from "react-router";
 import { authenticate } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { getCasesForShop } from "../services/support-case.server";
+import prisma from "../db.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -10,7 +11,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const status = url.searchParams.get("status") || undefined;
   const issueType = url.searchParams.get("issue") || undefined;
 
-  const cases = await getCasesForShop(session.id, { status, issueType });
+  const settings = await prisma.shopSettings.findUnique({
+    where: { shopDomain: session.shop },
+  });
+  const cases = await getCasesForShop(settings?.id ?? "", { status, issueType });
 
   return {
     cases: cases.map((c) => ({
