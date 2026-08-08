@@ -22,10 +22,23 @@ const snapshot: OrderSnapshot = {
   capturedAt: new Date(Date.now() - 7 * 86400000).toISOString(),
 };
 
+const DEMO_SHOP_DOMAIN =
+  process.env.DEMO_SHOP_DOMAIN || "callmemaybe-demo.myshopify.com";
+
 function html(page: string) {
   return new Response(page, {
     headers: { "Content-Type": "text/html; charset=utf-8" },
   });
+}
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>'"]/g, (character) => ({
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    "'": "&#39;",
+    '"': "&quot;",
+  })[character] ?? character);
 }
 
 const CSS = `
@@ -45,7 +58,9 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;b
 .btn-primary{background:#1a1a2e;color:white}
 .btn-primary:hover{background:#16213e}
 .btn:disabled{opacity:.5;cursor:not-allowed}
-input,select{width:100%;padding:12px;border:1px solid #c9cccf;border-radius:6px;font-size:15px;margin-bottom:10px}
+input:not([type=checkbox]),select{width:100%;padding:12px;border:1px solid #c9cccf;border-radius:6px;font-size:15px;margin-bottom:10px}
+.consent{display:flex;align-items:flex-start;gap:9px;color:#6d7175;font-size:12px;margin:4px 0 14px}
+.consent input{margin-top:3px}
 .result{padding:16px;border-radius:8px;margin-top:12px}
 .result-success{background:#e8f5e9;border:1px solid #a5d6a7}
 .result-error{background:#ffebee;border:1px solid #ef9a9a}
@@ -53,33 +68,44 @@ input,select{width:100%;padding:12px;border:1px solid #c9cccf;border-radius:6px;
 `;
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
+  const url = new URL(request.url);
+  const demoToken = url.searchParams.get("token") ?? "";
+  if (
+    process.env.DEMO_MODE_ENABLED !== "true" ||
+    !process.env.DEMO_ACCESS_TOKEN ||
+    demoToken !== process.env.DEMO_ACCESS_TOKEN
+  ) {
+    throw new Response("Not found", { status: 404 });
+  }
+
   const settings = await prisma.shopSettings.findFirst({
-    where: { shopDomain: "callmemaybe-demo.myshopify.com" },
+    where: { shopDomain: DEMO_SHOP_DOMAIN },
   });
-  const storeName = settings?.storeName ?? "Northstar Supply Co.";
+  const storeName = escapeHtml(settings?.storeName ?? "Northstar Supply Co.");
+  const safeDemoToken = escapeHtml(demoToken);
 
   const existing = await prisma.supportCase.findFirst({
     where: { shopifyOrderId: snapshot.orderId, status: { notIn: ["RESOLVED", "CANCELED"] } },
     orderBy: { createdAt: "desc" },
   });
 
-  const url = new URL(request.url);
   const status = url.searchParams.get("status");
   const caseRef = url.searchParams.get("case");
+  const verificationCode = url.searchParams.get("code");
   const error = url.searchParams.get("error");
 
   let statusBlock = "";
-  if (existing) {
+  if (status === "ok" && caseRef && verificationCode) {
+    statusBlock = `<div class="result result-success"><strong>Call on the way!</strong><br><p style="font-size:14px;margin-top:4px">Your phone will ring shortly. Case: <strong>${escapeHtml(caseRef)}</strong></p><p style="font-size:13px;color:#6d7175;margin-top:8px">When the agent calls, give it this one-time support code:</p><div class="code">${escapeHtml(verificationCode)}</div><p style="font-size:12px;color:#6d7175">The agent allows two attempts and will never read the code to you.</p></div>`;
+  } else if (existing) {
     statusBlock = `<div class="result result-success"><strong>Your case is open</strong><br>Reference: <strong>${existing.publicReference}</strong><br>Status: ${existing.status.replace(/_/g, " ")}</div>`;
-  } else if (status === "ok" && caseRef) {
-    statusBlock = `<div class="result result-success"><strong>Call on the way!</strong><br><p style="font-size:14px;margin-top:4px">Your phone will ring shortly. Case: <strong>${caseRef}</strong></p><p style="font-size:13px;color:#6d7175;margin-top:8px">When the agent calls, confirm your name and order number to verify your identity.</p></div>`;
   } else if (error) {
-    statusBlock = `<div class="result result-error">${error}</div>`;
+    statusBlock = `<div class="result result-error">${escapeHtml(error)}</div>`;
   }
 
   const form = statusBlock || existing
     ? ""
-    : `<form method="post"><input name="name" type="hidden" value="Alex Johnson"><input name="type" type="hidden" value="ORDER_STATUS"><input name="phone" type="tel" placeholder="Your phone number (+1...)" required><button type="submit" class="btn btn-primary">📞 Get phone support</button><p style="font-size:12px;color:#9ca3af;text-align:center;margin-top:8px">An AI assistant will call you. Your number is only used for this call.</p></form>`;
+    : `<form method="post"><input name="demoToken" type="hidden" value="${safeDemoToken}"><input name="phone" type="tel" placeholder="Your phone number (+1...)" required><label class="consent"><input name="consent" type="checkbox" value="yes" required><span>I agree to receive this AI-assisted support call. The call may be transcribed, and my number is used only to complete this request.</span></label><button type="submit" class="btn btn-primary">📞 Get phone support</button></form>`;
 
   return html(`<!DOCTYPE html>
 <html><head><title>Order #1043 — ${storeName}</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>${CSS}</style></head>
@@ -92,18 +118,31 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  const settings = await prisma.shopSettings.findFirst({
-    where: { shopDomain: "callmemaybe-demo.myshopify.com" },
-  });
-  if (!settings) {
-    return new Response(null, { status: 302, headers: { Location: "/demo/customer?error=Store+not+configured" } });
+  if (process.env.DEMO_MODE_ENABLED !== "true" || !process.env.DEMO_ACCESS_TOKEN) {
+    throw new Response("Not found", { status: 404 });
   }
 
   const formData = await request.formData();
-  const phone = String(formData.get("phone") ?? "").trim();
+  const demoToken = String(formData.get("demoToken") ?? "");
+  if (demoToken !== process.env.DEMO_ACCESS_TOKEN) {
+    throw new Response("Not found", { status: 404 });
+  }
 
+  const settings = await prisma.shopSettings.findFirst({
+    where: { shopDomain: DEMO_SHOP_DOMAIN },
+  });
+  if (!settings) {
+    return new Response(null, { status: 302, headers: { Location: `/demo/customer?token=${encodeURIComponent(demoToken)}&error=Store+not+configured` } });
+  }
+
+  const phone = String(formData.get("phone") ?? "").trim();
+  const consented = formData.get("consent") === "yes";
+
+  if (!consented) {
+    return new Response(null, { status: 302, headers: { Location: `/demo/customer?token=${encodeURIComponent(demoToken)}&error=Consent+is+required` } });
+  }
   if (!phone || !phone.startsWith("+")) {
-    return new Response(null, { status: 302, headers: { Location: "/demo/customer?error=Enter+your+phone+number+in+international+format" } });
+    return new Response(null, { status: 302, headers: { Location: `/demo/customer?token=${encodeURIComponent(demoToken)}&error=Enter+your+phone+number+in+international+format` } });
   }
 
   try {
@@ -135,10 +174,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
     return new Response(null, {
       status: 302,
-      headers: { Location: `/demo/customer?status=ok&case=${supportCase.publicReference}` },
+      headers: { Location: `/demo/customer?token=${encodeURIComponent(demoToken)}&status=ok&case=${supportCase.publicReference}&code=${supportCase.verificationCode}` },
     });
   } catch (error: unknown) {
     const msg = error instanceof Error ? error.message : "Could not create case";
-    return new Response(null, { status: 302, headers: { Location: `/demo/customer?error=${encodeURIComponent(msg)}` } });
+    return new Response(null, { status: 302, headers: { Location: `/demo/customer?token=${encodeURIComponent(demoToken)}&error=${encodeURIComponent(msg)}` } });
   }
 };

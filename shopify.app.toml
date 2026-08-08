@@ -10,12 +10,11 @@ embedded = true
 # Required scopes for CallmeMaybe
 # read_orders, write_orders - order management and address updates
 # read_customers - customer data access
-# read_products - product info for support context
 # read_legal_policies - store policies for knowledge sync
-scopes = "write_products,read_orders,write_orders,read_customers,read_products,read_legal_policies"
+scopes = "read_orders,write_orders,read_customers,read_legal_policies"
 
 [webhooks]
-api_version = "2026-10"
+api_version = "2026-07"
 
   [[webhooks.subscriptions]]
   uri = "/webhooks/app/uninstalled"
@@ -24,6 +23,10 @@ api_version = "2026-10"
   [[webhooks.subscriptions]]
   uri = "/webhooks/app/scopes_update"
   topics = [ "app/scopes_update" ]
+
+  [[webhooks.subscriptions]]
+  uri = "/webhooks/compliance"
+  compliance_topics = [ "customers/data_request", "customers/redact", "shop/redact" ]
 
 
 [auth]

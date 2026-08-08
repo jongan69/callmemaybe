@@ -9,6 +9,7 @@ import {
 } from "../app/lib/call-plan";
 import { IssueType, DEFAULT_POLICIES } from "../app/lib/types";
 import type { OrderSnapshot } from "../app/lib/types";
+import { evaluatePolicy } from "../app/services/policy.server";
 
 const SNAPSHOT: OrderSnapshot = {
   orderId: "gid://shopify/Order/1043",
@@ -269,7 +270,7 @@ describe("task templates", () => {
     assert.match(text, /confirm their name/);
   });
 
-  test("both customer-facing templates gate disclosure on verification", () => {
+  test("customer-facing templates gate disclosure using the right verification method", () => {
     const outreach = buildStuckOrderOutreachTask({
       agentName: "Riley",
       storeName: "S",
@@ -289,10 +290,12 @@ describe("task templates", () => {
       policyInstructions: "",
     });
 
-    for (const text of [outreach, standard]) {
-      assert.match(text, /Do not disclose order/i);
-      assert.match(text, /Do NOT ask for codes/i);
-    }
+    assert.match(outreach, /Do not disclose order/i);
+    assert.match(outreach, /Do NOT ask for codes/i);
+    assert.match(standard, /Do not disclose order/i);
+    assert.match(standard, /expected support code is 111111/i);
+    assert.match(standard, /at most two attempts/i);
+    assert.doesNotMatch(standard, /confirm their name and the order number/i);
   });
 });
 
@@ -330,5 +333,25 @@ describe("policy matrix", () => {
       const policy = DEFAULT_POLICIES.find((p) => p.issueType === issueType);
       assert.notEqual(policy?.mode, "AUTOMATIC", `${issueType} must not be automatic`);
     }
+  });
+
+  test("a misconfigured automatic mutation is downgraded to approval", () => {
+    const policy = {
+      ...DEFAULT_POLICIES.find((candidate) => candidate.issueType === "CANCELLATION")!,
+      mode: "AUTOMATIC" as const,
+    };
+
+    const decision = evaluatePolicy(policy, SNAPSHOT, {
+      identityVerified: true,
+      schemaValid: true,
+      completionConfidence: 0.99,
+      requestedAction: "cancel_order",
+      disposition: "completed",
+      hasTranscriptContradiction: false,
+    });
+
+    assert.equal(decision.actionType, "CANCEL_ORDER");
+    assert.equal(decision.mode, "APPROVAL");
+    assert.ok(decision.reasonCodes.includes("HUMAN_APPROVAL_REQUIRED"));
   });
 });

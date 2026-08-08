@@ -1,120 +1,104 @@
-# Demo script — 3 minutes
+# Three-minute demo script
 
-One order. Two calls. That's the whole structure — resist adding a third thread.
+The strongest recording is one real carrier-style call plus a fast tour of the
+customer callback and safety boundary. Do not pretend both workflows are one
+continuous case; they are two entry points into the same evidence → policy →
+approval pipeline.
 
-## The story
+## Before recording
 
-Order #1043. Northline Freight marked it delivered on 28 July. Alex Johnson
-replied to the delivery notification saying it never arrived, then stopped
-answering email. Today it's sitting in the merchant's queue, twelve days old,
-heading for a silent refund.
+- Set `CALL_PROVIDER=calle` and `CALLE_REAL_CALLS_ENABLED=true` only for the
+  recording window.
+- Point `DEMO_CARRIER_PHONE` at a stand-in line you control. Never use a real
+  carrier support number without permission.
+- Run `npm run verify:calle`, then one private end-to-end rehearsal.
+- Seed only if needed with `DEMO_SEED=true npm run seed`.
+- Open these tabs in order: Outreach, the target case, Automations, and the
+  token-protected customer demo.
+- Put the stand-in phone on speaker and silence notifications everywhere else.
+- Prepare a completed carrier case as a fallback so hold time cannot derail the
+  recording.
 
-Nobody calls the carrier, because that's 25 minutes on hold for a $124 order.
-So the merchant eats it.
+Say this disclosure during the call segment: “This is a stand-in line I control,
+not a real carrier; it runs the same CALL-E task and structured extraction.”
 
-CallmeMaybe calls the carrier. Then calls Alex back with the answer.
+## 0:00–0:22 — The phone-shaped problem
 
-## Setup before recording
+Show the polished landing page, then Shopify Admin → Outreach.
 
-- `DEMO_CARRIER_PHONE` points at **a line you control**. Never a real carrier.
-- `DEMO_CUSTOMER_PHONE` points at a second line you control.
-- `CALL_PROVIDER=calle`, `CALLE_REAL_CALLS_ENABLED=true`.
-- `npm run verify:calle` passes.
-- Two phones on the desk, both visible in frame or on speaker.
-- Have a person ready to answer the "carrier" line and play a support agent.
-  Give them the IVR-then-agent routine: automated greeting, hold, then pick up.
+> “A small Shopify team has two expensive gaps. A carrier has no useful exception
+> API—only a phone tree and a hold queue. And when a customer stops answering
+> email, the order stops moving. CallmeMaybe treats phone as the API of last
+> resort and the escalation channel.”
 
-**Say the stand-in out loud in the video, around 0:50.** One sentence:
-*"That's a stand-in line I control, not a real carrier — same script, same
-structured extraction."* Judges accept a transparent stand-in. They do not
-forgive a silent fake, and a reviewer who spots it later will discount
-everything else.
+## 0:22–0:48 — Start the carrier workflow
 
----
+On a live recent order, expand carrier setup. Show tracking data prefilled, enter
+the controlled phone, and click **Call carrier**.
 
-## 0:00–0:22 — The problem, with a number
+> “The app reads the live order and tracking context from Shopify. CALL-E gets a
+> bounded task and a strict result schema: open a trace, capture the reference,
+> disposition, response window, and hold time.”
 
-*Merchant admin, Outreach page. Three stuck orders visible.*
+Show the phone ringing/answering. Include the stand-in disclosure. Cut the wait;
+do not spend the demo listening to simulated hold music.
 
-> "Every Shopify merchant has this queue. Orders that can't ship, or that the
-> carrier says arrived and the customer says didn't. Resolving one means sitting
-> on hold with a carrier for twenty-five minutes over a hundred-dollar order. So
-> nobody does it. They refund it and eat the loss."
+## 0:48–1:28 — The result is evidence
 
-Land on #1043. The badge says *Northline Freight says delivered · NL4820199317*.
+Open the completed case. Show the call timeline, structured result, and redacted
+transcript.
 
-## 0:22–0:40 — Why a phone call at all
+> “This is not a free-form summary. CALL-E returned schema-validated evidence.
+> The webhook only wakes the app; CallmeMaybe re-fetches the canonical result
+> from CALL-E, so a forged webhook cannot invent an outcome.”
 
-> "This isn't a chatbot problem. The carrier has no API for a small shipper.
-> The only interface is a phone number and a hold queue. And the customer has
-> already ignored two emails, so email isn't the channel either."
+Point to `trace_reference`, `carrier_disposition`, `promised_response_by`, and
+`hold_time_minutes` in the structured result.
 
-*Click **Call Northline Freight**.*
+## 1:28–2:02 — Show the safety boundary
 
-## 0:40–1:25 — The carrier call
+Show the proposal and click **Approve & apply**. The carrier result writes an
+auditable Shopify order note after approval.
 
-*Split screen: phone audio, and the case timeline updating.*
+> “The model never authorizes. A deterministic policy decides whether the result
+> is eligible, and every Shopify mutation requires merchant approval. Immediately
+> before writing, the app re-reads the order. Any status, address, item, quantity,
+> total, cancellation, or update drift aborts execution.”
 
-- Automated menu. CALL-E waits through it, picks the shipment option.
-- Enters the tracking number.
-- Hold.
-- Agent picks up. CALL-E states it's an AI calling for Northstar Supply Co.
-- Gives tracking number, asks for a package trace.
-- Gets a trace reference. Reads it back to confirm.
+Show the success banner and audit event. If rehearsing against a disposable order,
+make a harmless edit before approval once and capture the stale-state abort as an
+optional picture-in-picture proof.
 
-> "It's navigating a phone tree, holding, and adapting to whatever the agent
-> says. That's the part that can't be a form." *(stand-in disclosure here)*
+## 2:02–2:34 — Customer callback
 
-## 1:25–1:50 — Structured result, leg one
+Switch to the token-protected customer demo. Enter the recording phone, check the
+explicit consent box, and request support. Show the six-digit code.
 
-*Case detail. The structured result panel.*
+> “The second entry point is a customer-requested callback. The phone number comes
+> from the signed Shopify order in the real customer extension. Sensitive details
+> stay hidden until the customer gives the one-time code; the agent gets two
+> attempts and never reads the code aloud.”
 
-```
-trace_opened          yes
-trace_reference       NF-2291-4477
-carrier_disposition   investigating
-promised_response_by  "five to seven business days"
-hold_time_minutes     11
-```
+Briefly show the customer-account extension and the resulting case in Admin. A
+second live call is optional; the carrier call already proves CALL-E execution.
 
-> "Not a transcript summary — a schema CALL-E extracted and validated. Eleven
-> minutes of hold time nobody had to sit through."
+## 2:34–3:00 — Close on product experience
 
-## 1:50–2:25 — The customer call
+Show Automations, Settings policy sync, and the overview in quick succession.
 
-*Click **Call customer**.*
+> “Merchants control each issue policy, sync their Shopify policy text, approve
+> consequences, and keep an audit trail. Personal data is encrypted, the display
+> transcript is redacted, and Shopify privacy requests are built in. CallmeMaybe:
+> phone work for stores, safely resolved.”
 
-- Identifies the store and order number first, since Alex isn't expecting this.
-- Six-digit code challenge before any order detail is disclosed.
-- Reports what the carrier said.
-- Confirms the resolution: reship to the same address.
-- Reads the address back. Alex confirms out loud.
+Finish on the project cover or logo, not a terminal.
 
-> "Now the customer gets an actual answer instead of silence, and the
-> confirmation is captured as evidence, not a click."
+## Recording checklist
 
-## 2:25–2:50 — The policy gate
-
-*Case detail: resolution proposal.*
-
-- Policy: `CARRIER_TRACE` is APPROVAL, not automatic.
-- Order re-fetched from Shopify and re-checked before anything executes.
-- Merchant approves. Reship created. Both call legs in the audit trail.
-
-> "The AI never authorises anything. It gathers evidence. A deterministic policy
-> engine decides, the merchant approves, and every step is auditable."
-
-## 2:50–3:00 — Close
-
-> "Phone is the escalation channel when email stops working, and the API of last
-> resort when the other side doesn't have one. CallmeMaybe puts a Shopify store
-> on both — and turns what gets said into an audited order action."
-
----
-
-## What to cut if you run long
-
-In order: the third stuck order in the queue (0:15), the policy gate detail
-(2:25–2:50 compresses to one line), the IVR navigation (jump straight to the
-agent). Do **not** cut the stand-in disclosure or the structured result panel —
-the first is honesty, the second is the entire technical claim.
+- 1080p or higher; zoom the browser to keep labels readable.
+- Keep the final edit between 2:45 and 3:05.
+- Add captions for every spoken line and on-screen labels for the two call legs.
+- Show the CALL-E dashboard/call ID for two seconds as proof of the real call.
+- Do not show API keys, access tokens, full phone numbers, customer email,
+  unredacted transcripts, or the private demo token.
+- Upload publicly to YouTube or Vimeo and verify it in a signed-out window.

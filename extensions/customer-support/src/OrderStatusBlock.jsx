@@ -1,15 +1,12 @@
 import "@shopify/ui-extensions/preact";
 import { render } from "preact";
-import { useSessionToken, useOrder } from "@shopify/ui-extensions/preact";
-
-const API_BASE = "";
+import { useOrder } from "@shopify/ui-extensions/preact";
 
 export default async () => {
   render(<OrderStatusBlock />, document.body);
 };
 
 function OrderStatusBlock() {
-  const token = useSessionToken();
   const order = useOrder();
 
   // The order status block shows ResolveLine case status inline.
@@ -21,7 +18,7 @@ function OrderStatusBlock() {
   return (
     <s-banner tone="info">
       <s-text>
-        Need help with this order? Select "Get support" to request an AI phone callback from our support team.
+        Need help with this order? Select &quot;Get support&quot; to request an AI phone callback from our support team.
       </s-text>
     </s-banner>
   );

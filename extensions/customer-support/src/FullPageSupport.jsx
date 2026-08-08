@@ -1,7 +1,7 @@
 import "@shopify/ui-extensions/preact";
 import { render } from "preact";
-import { signal } from "@preact/signals";
-import { useSessionToken, useOrder, useCustomer } from "@shopify/ui-extensions/preact";
+import { useEffect, useRef, useState } from "preact/hooks";
+import { useSessionToken, useOrder } from "@shopify/ui-extensions/preact";
 
 const API_BASE = "";
 
@@ -27,40 +27,42 @@ export default async () => {
 function FullPageSupport() {
   const token = useSessionToken();
   const order = useOrder();
-  const customer = useCustomer();
 
-  const step = signal("request"); // request | preparing | active | result
-  const issueType = signal("");
-  const consented = signal(false);
-  const loading = signal(false);
-  const error = signal("");
-  const caseRef = signal("");
-  const verificationCode = signal("");
-  const codeExpiresAt = signal("");
-  const callStatus = signal("");
-  const maskedPhone = signal("");
-  const caseStatus = signal("");
-  let pollTimer = null;
+  const [step, setStep] = useState("request"); // request | preparing | active | result
+  const [issueType, setIssueType] = useState("");
+  const [consented, setConsented] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [caseRef, setCaseRef] = useState("");
+  const [verificationCode, setVerificationCode] = useState("");
+  const [codeExpiresAt, setCodeExpiresAt] = useState("");
+  const [maskedPhone, setMaskedPhone] = useState("");
+  const [caseStatus, setCaseStatus] = useState("");
+  const pollTimerRef = useRef(null);
 
   const stopPolling = () => {
-    if (pollTimer) {
-      clearInterval(pollTimer);
-      pollTimer = null;
+    if (pollTimerRef.current) {
+      clearInterval(pollTimerRef.current);
+      pollTimerRef.current = null;
     }
   };
 
+  useEffect(() => () => {
+    if (pollTimerRef.current) clearInterval(pollTimerRef.current);
+  }, []);
+
   const requestSupport = async () => {
-    if (!issueType.value) {
-      error.value = "Please select what you need help with.";
+    if (!issueType) {
+      setError("Please select what you need help with.");
       return;
     }
-    if (!consented.value) {
-      error.value = "Please consent to receive an AI support call.";
+    if (!consented) {
+      setError("Please consent to receive an AI support call.");
       return;
     }
 
-    loading.value = true;
-    error.value = "";
+    setLoading(true);
+    setError("");
 
     try {
       const res = await fetch(`${API_BASE}/api/customer-support/request`, {
@@ -72,48 +74,37 @@ function FullPageSupport() {
         body: JSON.stringify({
           orderId: order.id,
           orderName: order.name || `#${order.number}`,
-          customerId: customer?.id,
-          customerName: customer
-            ? `${customer.firstName || ""} ${customer.lastName || ""}`.trim()
-            : undefined,
-          customerEmail: customer?.email,
-          customerPhone: customer?.phone || order.shippingAddress?.phone,
-          issueType: issueType.value,
+          issueType,
           consentGiven: true,
-          financialStatus: order.displayFinancialStatus || "unknown",
-          fulfillmentStatus: order.displayFulfillmentStatus || "unfulfilled",
-          orderTotal: order.totalPriceSet?.shopMoney?.amount
-            ? Math.round(parseFloat(order.totalPriceSet.shopMoney.amount) * 100)
-            : 0,
         }),
       });
 
       const data = await res.json();
 
       if (res.ok && data.caseReference) {
-        caseRef.value = data.caseReference;
-        verificationCode.value = data.verificationCode;
-        codeExpiresAt.value = data.codeExpiresAt;
-        callStatus.value = data.callStatus;
-        maskedPhone.value = data.maskedPhone;
-        step.value = "preparing";
+        setCaseRef(data.caseReference);
+        setVerificationCode(data.verificationCode);
+        setCodeExpiresAt(data.codeExpiresAt);
+        setMaskedPhone(data.maskedPhone);
+        setStep("preparing");
         startPolling(data.caseReference);
       } else {
-        error.value =
+        setError(
           data.error?.userMessage ||
           data.error?.message ||
-          "Unable to create support case. Please try again.";
+          "Unable to create support case. Please try again.",
+        );
       }
-    } catch (e) {
-      error.value = "Network error. Please check your connection and try again.";
+    } catch {
+      setError("Network error. Please check your connection and try again.");
     } finally {
-      loading.value = false;
+      setLoading(false);
     }
   };
 
   const startPolling = (reference) => {
     stopPolling();
-    pollTimer = setInterval(async () => {
+    pollTimerRef.current = setInterval(async () => {
       try {
         const res = await fetch(
           `${API_BASE}/api/customer-support/cases/${reference}`,
@@ -122,8 +113,7 @@ function FullPageSupport() {
         if (res.ok) {
           const data = await res.json();
           if (data.case) {
-            caseStatus.value = data.case.status;
-            callStatus.value = data.case.callStatus;
+            setCaseStatus(data.case.status);
             if (
               data.case.status === "RESOLVED" ||
               data.case.status === "AWAITING_APPROVAL" ||
@@ -132,14 +122,14 @@ function FullPageSupport() {
               data.case.status === "CALL_NOT_COMPLETED" ||
               data.case.status === "CANCELED"
             ) {
-              step.value = "result";
+              setStep("result");
               stopPolling();
             } else if (data.case.callStatus === "CALLING") {
-              step.value = "active";
+              setStep("active");
             }
           }
         }
-      } catch (e) {
+      } catch {
         // Polling errors are not user-facing
       }
     }, 3000);
@@ -147,17 +137,20 @@ function FullPageSupport() {
 
   const resetForm = () => {
     stopPolling();
-    step.value = "request";
-    issueType.value = "";
-    consented.value = false;
-    error.value = "";
-    caseRef.value = "";
-    verificationCode.value = "";
+    setStep("request");
+    setIssueType("");
+    setConsented(false);
+    setError("");
+    setCaseRef("");
+    setVerificationCode("");
+    setCodeExpiresAt("");
+    setMaskedPhone("");
+    setCaseStatus("");
   };
 
   // ─── Request Screen ──────────────────────────────────────────
 
-  if (step.value === "request") {
+  if (step === "request") {
     return (
       <s-page heading="Get Support">
         <s-section heading={`Order ${order?.name || `#${order?.number}`}`}>
@@ -176,8 +169,8 @@ function FullPageSupport() {
                 padding="base"
                 borderWidth="base"
                 borderRadius="base"
-                background={issueType.value === opt.value ? "subdued" : undefined}
-                onClick={() => { issueType.value = opt.value; }}
+                background={issueType === opt.value ? "subdued" : undefined}
+                onClick={() => setIssueType(opt.value)}
               >
                 <s-text>{opt.label}</s-text>
               </s-box>
@@ -190,18 +183,18 @@ function FullPageSupport() {
             <input
               type="checkbox"
               id="consent"
-              checked={consented.value}
-              onChange={(e) => { consented.value = e.target.checked; }}
+              checked={consented}
+              onChange={(e) => setConsented(e.currentTarget.checked)}
             />
-            <label for="consent">
+            <label htmlFor="consent">
               <s-text>{CONSENT_TEXT}</s-text>
             </label>
           </s-stack>
         </s-section>
 
-        {error.value && (
+        {error && (
           <s-banner tone="critical">
-            <s-text>{error.value}</s-text>
+            <s-text>{error}</s-text>
           </s-banner>
         )}
 
@@ -209,9 +202,9 @@ function FullPageSupport() {
           <button
             type="button"
             onClick={requestSupport}
-            disabled={loading.value || !issueType.value || !consented.value}
+            disabled={loading || !issueType || !consented}
           >
-            {loading.value ? "Preparing..." : "Call me"}
+            {loading ? "Preparing..." : "Call me"}
           </button>
         </s-stack>
 
@@ -227,14 +220,14 @@ function FullPageSupport() {
 
   // ─── Preparing Screen ─────────────────────────────────────────
 
-  if (step.value === "preparing") {
+  if (step === "preparing") {
     return (
       <s-page heading="Your Support Call">
         <s-section heading="Call being prepared">
           <s-banner tone="success">
             <s-text>
               Your support call is being prepared. You will receive a call
-              shortly at {maskedPhone.value}.
+              shortly at {maskedPhone}.
             </s-text>
           </s-banner>
         </s-section>
@@ -244,10 +237,10 @@ function FullPageSupport() {
             <s-text>
               When the AI agent calls, give them this code:
             </s-text>
-            <s-heading>{verificationCode.value}</s-heading>
+            <s-heading>{verificationCode}</s-heading>
             <s-text>
               Code expires at{" "}
-              {new Date(codeExpiresAt.value).toLocaleTimeString()}
+              {new Date(codeExpiresAt).toLocaleTimeString()}
             </s-text>
             <s-text>
               Never share this code with anyone who calls you unexpectedly.
@@ -256,7 +249,7 @@ function FullPageSupport() {
         </s-section>
 
         <s-section heading="Case reference">
-          <s-text>{caseRef.value}</s-text>
+          <s-text>{caseRef}</s-text>
         </s-section>
 
         <s-stack direction="inline" gap="base">
@@ -270,7 +263,7 @@ function FullPageSupport() {
 
   // ─── Active Screen ────────────────────────────────────────────
 
-  if (step.value === "active") {
+  if (step === "active") {
     return (
       <s-page heading="Call in Progress">
         <s-section heading="Your support call is active">
@@ -281,7 +274,7 @@ function FullPageSupport() {
           </s-banner>
         </s-section>
         <s-section heading="Case reference">
-          <s-text>{caseRef.value}</s-text>
+          <s-text>{caseRef}</s-text>
         </s-section>
       </s-page>
     );
@@ -297,9 +290,9 @@ function FullPageSupport() {
     FAILED: { tone: "critical", text: "There was an issue. Please try again." },
   };
 
-  const result = resultLabels[caseStatus.value] || {
+  const result = resultLabels[caseStatus] || {
     tone: "info",
-    text: `Case status: ${caseStatus.value}`,
+    text: `Case status: ${caseStatus}`,
   };
 
   return (
@@ -310,9 +303,9 @@ function FullPageSupport() {
         </s-banner>
       </s-section>
       <s-section heading="Case reference">
-        <s-text>{caseRef.value}</s-text>
+        <s-text>{caseRef}</s-text>
       </s-section>
-      {(caseStatus.value === "CALL_NOT_COMPLETED" || caseStatus.value === "FAILED") && (
+      {(caseStatus === "CALL_NOT_COMPLETED" || caseStatus === "FAILED") && (
         <s-stack direction="inline" gap="base">
           <button type="button" onClick={resetForm}>
             Request another call

@@ -1,0 +1,31 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: file:./ci.sqlite
+      SHOPIFY_API_KEY: ci-placeholder
+      SHOPIFY_API_SECRET: ci-placeholder
+      SHOPIFY_APP_URL: https://example.test
+      SCOPES: read_orders,write_orders,read_customers,read_legal_policies
+      APP_ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
+      HASH_PEPPER: ci-only-pepper
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run setup
+      - run: npm run check

@@ -38,6 +38,8 @@ type OutreachOrder = {
   createdAt: string;
   totalMinor: number;
   currencyCode: string;
+  carrierName: string;
+  trackingNumber: string;
   shippingAddress?: {
     address1?: string;
     city?: string;
@@ -49,9 +51,9 @@ type OutreachOrder = {
 
 // ── Shopify Admin query ────────────────────────────────────────
 
-const UNFULFILLED_ORDERS_QUERY = `#graphql
-  query UnfulfilledOrders($first: Int!) {
-    orders(first: $first, reverse: true, query: "fulfillment_status:unfulfilled") {
+const RECENT_ORDERS_QUERY = `#graphql
+  query RecentOrders($first: Int!) {
+    orders(first: $first, reverse: true) {
       edges {
         node {
           id
@@ -75,8 +77,11 @@ const UNFULFILLED_ORDERS_QUERY = `#graphql
             id
             firstName
             lastName
-            email
-            phone
+            defaultEmailAddress { emailAddress }
+            defaultPhoneNumber { phoneNumber }
+          }
+          fulfillments(first: 5) {
+            trackingInfo { company number }
           }
         }
       }
@@ -85,7 +90,7 @@ const UNFULFILLED_ORDERS_QUERY = `#graphql
 `;
 
 async function loadUnfulfilledOrders(admin: AdminClient): Promise<OutreachOrder[]> {
-  const resp = await admin.graphql(UNFULFILLED_ORDERS_QUERY, {
+  const resp = await admin.graphql(RECENT_ORDERS_QUERY, {
     variables: { first: 50 },
   });
   const json = (await resp.json()) as {
@@ -97,6 +102,10 @@ async function loadUnfulfilledOrders(admin: AdminClient): Promise<OutreachOrder[
     const customer = o.customer as Record<string, unknown> | undefined;
     const addr = o.shippingAddress as Record<string, unknown> | undefined;
     const total = o.totalPriceSet as { shopMoney?: { amount?: string; currencyCode?: string } };
+    const fulfillments = (o.fulfillments as Array<{
+      trackingInfo?: Array<{ company?: string; number?: string }>;
+    }> | undefined) ?? [];
+    const tracking = fulfillments.flatMap((fulfillment) => fulfillment.trackingInfo ?? [])[0];
     const amount = total?.shopMoney?.amount ?? "0";
     return {
       orderId: o.id as string,
@@ -105,10 +114,15 @@ async function loadUnfulfilledOrders(admin: AdminClient): Promise<OutreachOrder[
       financialStatus: (o.displayFinancialStatus as string) || "PENDING",
       customerId: (customer?.id as string) ?? "unknown",
       customerName: [customer?.firstName, customer?.lastName].filter(Boolean).join(" ") || "Customer",
-      customerPhone: (addr?.phone as string) || (customer?.phone as string) || "",
+      customerPhone:
+        (addr?.phone as string) ||
+        ((customer?.defaultPhoneNumber as { phoneNumber?: string } | undefined)?.phoneNumber) ||
+        "",
       createdAt: o.createdAt as string,
       totalMinor: Math.round(parseFloat(amount) * 100),
       currencyCode: total?.shopMoney?.currencyCode ?? "USD",
+      carrierName: tracking?.company ?? "",
+      trackingNumber: tracking?.number ?? "",
       shippingAddress: addr ? {
         address1: addr.address1 as string,
         city: addr.city as string,
@@ -131,7 +145,12 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   // Auto-create settings on first visit so the merchant never sees a blank state.
   if (!settings) {
-    return { configured: false, storeName: session.shop, orders: [] as OutreachOrder[] };
+    return {
+      configured: false,
+      storeName: session.shop,
+      orders: [] as OutreachOrder[],
+      demoCarrierPhone: "",
+    };
   }
 
   // Exclude orders already under an open case.
@@ -148,9 +167,19 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     const orders = (await loadUnfulfilledOrders(admin)).filter(
       (o) => !busyIds.has(o.orderId),
     );
-    return { configured: true, storeName: settings.storeName, orders };
+    return {
+      configured: true,
+      storeName: settings.storeName,
+      orders,
+      demoCarrierPhone: process.env.DEMO_CARRIER_PHONE ?? "",
+    };
   } catch {
-    return { configured: true, storeName: settings.storeName, orders: [] as OutreachOrder[] };
+    return {
+      configured: true,
+      storeName: settings.storeName,
+      orders: [] as OutreachOrder[],
+      demoCarrierPhone: process.env.DEMO_CARRIER_PHONE ?? "",
+    };
   }
 };
 
@@ -192,9 +221,13 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 
   const orderSnapshot = buildOrderSnapshot(orderContext);
   const customerPhone =
-    orderContext.shippingAddress?.phone ?? "";
+    orderContext.shippingAddress?.phone ?? orderContext.customerPhone ?? "";
   const customerName =
-    orderContext.shippingAddress?.name ?? "Customer";
+    orderContext.shippingAddress?.name ?? orderContext.customerName ?? "Customer";
+
+  if (!callsCarrier && (!orderContext.customerId || !customerPhone)) {
+    return { error: "This order needs a customer and phone number before outreach can start." };
+  }
 
   try {
     const supportCase = await createSupportCase({
@@ -202,7 +235,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       shopDomain: settings.shopDomain,
       shopifyOrderId: orderId,
       shopifyOrderName: orderContext.orderName,
-      shopifyCustomerId: String((orderContext as unknown as Record<string, unknown>).customerId ?? "unknown"),
+      shopifyCustomerId: orderContext.customerId ?? "third-party-carrier-leg",
       issueType,
       customerPhone: customerPhone || carrierPhone, // fallback for carrier leg
       customerName,
@@ -277,18 +310,18 @@ function daysAgo(iso: string): number {
 // ── UI ─────────────────────────────────────────────────────────
 
 export default function Outreach() {
-  const { orders, configured } = useLoaderData<typeof loader>();
+  const { orders, configured, demoCarrierPhone } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const nav = useNavigation();
   const busy = nav.state === "submitting";
 
   return (
     <s-page heading="Outreach">
-      <s-section heading="Unfulfilled Orders">
+      <s-section heading="Recent orders">
         <s-text>
-          Orders that haven&apos;t shipped yet. When email stops working, a phone
-          call is the escalation channel — call the carrier about a delivery issue,
-          or call the customer to resolve a blocker.
+          Call a customer about an unfulfilled-order blocker, or call the carrier
+          when a delivery problem has no useful API. Phone is the escalation
+          channel; the result still goes through your policy.
         </s-text>
 
         {!configured && (
@@ -312,7 +345,7 @@ export default function Outreach() {
 
         {orders.length === 0 && configured && (
           <s-box padding="base" borderWidth="base" borderRadius="base" background="subdued">
-            <s-text>No unfulfilled orders right now.</s-text>
+            <s-text>No recent orders are available.</s-text>
           </s-box>
         )}
 
@@ -337,47 +370,48 @@ export default function Outreach() {
               )}
 
               <s-stack direction="inline" gap="base">
-                {/* Customer call */}
                 <Form method="post" style={{ display: "inline" }}>
                   <input type="hidden" name="orderId" value={order.orderId} />
                   <input type="hidden" name="leg" value="customer" />
-                  <s-button type="submit" disabled={busy || !order.customerPhone}>
-                    Call customer
+                  <s-button type="submit" disabled={busy || !order.customerPhone || order.fulfillmentStatus !== "UNFULFILLED"}>
+                    Resolve blocker with customer
                   </s-button>
-                </Form>
-
-                {/* Carrier call — inline form for carrier details */}
-                <Form method="post" style={{ display: "inline" }}>
-                  <input type="hidden" name="orderId" value={order.orderId} />
-                  <input type="hidden" name="leg" value="carrier" />
-                  <s-button type="submit" variant="primary" disabled={busy}>
-                    Call carrier
-                  </s-button>
-                  <span> Carrier: </span>
-                  <input
-                    name="carrierName"
-                    placeholder="UPS / FedEx / DHL"
-                    defaultValue=""
-                    style={{ width: 120 }}
-                    disabled={busy}
-                  />
-                  <input
-                    name="carrierPhone"
-                    type="tel"
-                    placeholder="+1..."
-                    defaultValue=""
-                    style={{ width: 140 }}
-                    disabled={busy}
-                  />
-                  <input
-                    name="trackingNumber"
-                    placeholder="Tracking # (optional)"
-                    defaultValue=""
-                    style={{ width: 160 }}
-                    disabled={busy}
-                  />
                 </Form>
               </s-stack>
+
+              <details>
+                <summary>Open carrier call setup</summary>
+                <Form method="post">
+                  <input type="hidden" name="orderId" value={order.orderId} />
+                  <input type="hidden" name="leg" value="carrier" />
+                  <s-form-layout>
+                    <s-text-field
+                      name="carrierName"
+                      label="Carrier"
+                      placeholder="UPS / FedEx / DHL"
+                      defaultValue={order.carrierName}
+                      disabled={busy}
+                    />
+                    <s-text-field
+                      name="carrierPhone"
+                      label="Support phone (a number you control for the demo)"
+                      placeholder="+1..."
+                      defaultValue={demoCarrierPhone}
+                      disabled={busy}
+                    />
+                    <s-text-field
+                      name="trackingNumber"
+                      label="Tracking number"
+                      placeholder="Optional"
+                      defaultValue={order.trackingNumber}
+                      disabled={busy}
+                    />
+                    <s-button type="submit" variant="primary" disabled={busy}>
+                      {busy ? "Starting call…" : "Call carrier"}
+                    </s-button>
+                  </s-form-layout>
+                </Form>
+              </details>
             </s-stack>
           </s-box>
         ))}

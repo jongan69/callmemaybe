@@ -1,9 +1,10 @@
 import type { HeadersFunction, LoaderFunctionArgs } from "react-router";
-import { useLoaderData, useFetcher } from "react-router";
+import { useLoaderData } from "react-router";
 import { authenticate } from "../shopify.server";
 import { boundary } from "@shopify/shopify-app-react-router/server";
 import { getCasesForShop } from "../services/support-case.server";
 import prisma from "../db.server";
+import { getProviderMode } from "../providers/index.server";
 
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
@@ -28,6 +29,7 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
 
   return {
     stats: { openCases, awaitingApproval, resolved, needsHuman, totalCases: cases.length },
+    providerMode: getProviderMode(),
     recentCases: cases.slice(0, 10).map((c) => ({
       id: c.publicReference,
       order: c.shopifyOrderName,
@@ -39,23 +41,32 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   };
 };
 
-export const action = async () => {
-  return { testCallInitiated: true };
-};
-
 export default function Overview() {
-  const { stats, recentCases } = useLoaderData<typeof loader>();
-  const fetcher = useFetcher();
+  const { stats, recentCases, providerMode } = useLoaderData<typeof loader>();
 
   return (
     <s-page heading="CallmeMaybe">
       <s-button
         slot="primary-action"
-        onClick={() => fetcher.submit({ intent: "test_call" }, { method: "POST" })}
+        href="/app/outreach"
         variant="primary"
       >
-        Test support call
+        Review outreach
       </s-button>
+
+      <s-section heading="Phone work, safely resolved">
+        <s-paragraph>
+          Call carriers when there is no API, reach customers when email stalls,
+          and turn each conversation into structured evidence. The model talks;
+          your policy decides; a merchant approves consequential changes.
+        </s-paragraph>
+        <s-stack direction="inline" gap="base">
+          <s-badge tone={providerMode === "calle" ? "success" : "info"}>
+            {providerMode === "calle" ? "CALL-E live" : "Safe fixture mode"}
+          </s-badge>
+          <s-text>{stats.totalCases} total cases</s-text>
+        </s-stack>
+      </s-section>
 
       <s-section heading="Overview">
         <s-stack direction="inline" gap="base">
@@ -83,6 +94,7 @@ export default function Overview() {
           <s-link href="/app/cases">View all cases</s-link>
           <s-link href="/app/approvals">Pending approvals</s-link>
           <s-link href="/app/settings">Configure automation</s-link>
+          <s-link href="/app/outreach">Call about a live order</s-link>
         </s-stack>
       </s-section>
 

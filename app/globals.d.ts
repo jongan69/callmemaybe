@@ -29,6 +29,7 @@ declare namespace JSX {
     };
     "s-button": React.DetailedHTMLProps<React.ButtonHTMLAttributes<HTMLElement>, HTMLElement> & {
       variant?: "primary" | "secondary" | "tertiary";
+      href?: string;
       submit?: boolean;
       slot?: string;
       children?: React.ReactNode;

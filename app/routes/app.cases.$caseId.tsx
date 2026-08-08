@@ -8,10 +8,16 @@ import { executeResolution } from "../services/resolution.server";
 import prisma from "../db.server";
 
 export const loader = async ({ request, params }: LoaderFunctionArgs) => {
-  await authenticate.admin(request);
+  const { session } = await authenticate.admin(request);
   const caseId = params.caseId as string;
+  const settings = await prisma.shopSettings.findUnique({
+    where: { shopDomain: session.shop },
+    select: { id: true },
+  });
 
-  const caseData = await getSupportCase(caseId);
+  const caseData = settings
+    ? await getSupportCase(caseId, { shopId: settings.id })
+    : null;
   if (!caseData) throw new Response("Case not found", { status: 404 });
 
   const auditTrail = await getAuditTrail(caseData.id);
@@ -65,14 +71,27 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   const intent = formData.get("intent") as string;
   const caseId = params.caseId as string;
 
-  const supportCase = await prisma.supportCase.findUnique({ where: { publicReference: caseId } });
+  const settings = await prisma.shopSettings.findUnique({
+    where: { shopDomain: session.shop },
+    select: { id: true },
+  });
+  const supportCase = settings
+    ? await prisma.supportCase.findFirst({
+        where: { publicReference: caseId, shopId: settings.id },
+      })
+    : null;
   if (!supportCase) throw new Response("Case not found", { status: 404 });
 
   if (intent === "approve") {
     const proposalId = formData.get("proposalId") as string;
+    const proposal = await prisma.resolutionProposal.findFirst({
+      where: { id: proposalId, supportCaseId: supportCase.id },
+      select: { id: true },
+    });
+    if (!proposal) throw new Response("Resolution not found", { status: 404 });
 
     await prisma.resolutionProposal.update({
-      where: { id: proposalId },
+      where: { id: proposal.id },
       data: { status: "APPROVED", approvedBy: session.id, approvedAt: new Date() },
     });
 
@@ -86,7 +105,7 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
 
     const outcome = await executeResolution({
       admin,
-      proposalId,
+      proposalId: proposal.id,
       shopId: supportCase.shopId,
       actorId: session.id,
     });
@@ -109,8 +128,13 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
   if (intent === "reject") {
     const proposalId = formData.get("proposalId") as string;
     const reason = formData.get("reason") as string;
+    const proposal = await prisma.resolutionProposal.findFirst({
+      where: { id: proposalId, supportCaseId: supportCase.id },
+      select: { id: true },
+    });
+    if (!proposal) throw new Response("Resolution not found", { status: 404 });
     await prisma.resolutionProposal.update({
-      where: { id: proposalId },
+      where: { id: proposal.id },
       data: { status: "REJECTED", rejectedBy: session.id, rejectedAt: new Date(), rejectionReason: reason || "Rejected" },
     });
     await prisma.supportCase.update({ where: { id: supportCase.id }, data: { status: "NEEDS_HUMAN" } });
@@ -126,11 +150,29 @@ export const action = async ({ request, params }: ActionFunctionArgs) => {
 export default function CaseDetail() {
   const { case: caseData, auditTrail } = useLoaderData<typeof loader>();
   const fetcher = useFetcher();
+  const actionResult = fetcher.data as
+    | { executed?: boolean; rejected?: boolean; escalated?: boolean; error?: string; note?: string }
+    | undefined;
 
   const statTone = (s: string) => ({ RESOLVED: "success", AWAITING_APPROVAL: "caution", NEEDS_HUMAN: "critical", FAILED: "critical", CALLING: "info", PROCESSING_RESULT: "info", CANCELED: "neutral" }[s] ?? "info") as "success" | "caution" | "critical" | "info" | "neutral";
 
   return (
     <s-page heading={`Case ${caseData.id}`}>
+      {actionResult?.executed && (
+        <s-banner tone="success"><s-text>Approved and applied to Shopify.</s-text></s-banner>
+      )}
+      {actionResult?.rejected && (
+        <s-banner tone="info"><s-text>Proposal rejected and routed to human review.</s-text></s-banner>
+      )}
+      {actionResult?.escalated && (
+        <s-banner tone="info"><s-text>Case escalated for human review.</s-text></s-banner>
+      )}
+      {actionResult?.error && (
+        <s-banner tone="critical"><s-text>{actionResult.error}</s-text></s-banner>
+      )}
+      {actionResult?.note && (
+        <s-banner tone="info"><s-text>{actionResult.note}</s-text></s-banner>
+      )}
       <s-section heading="Case details">
         <s-stack direction="inline" gap="base">
           <s-box padding="base" borderWidth="base" borderRadius="base">
@@ -191,7 +233,9 @@ export default function CaseDetail() {
       {caseData.latestCallAttempt?.transcriptRedacted && (
         <s-section heading="Transcript">
           <s-box padding="base" borderWidth="base" borderRadius="base" background="subdued">
-            <pre>{caseData.latestCallAttempt.transcriptRedacted}</pre>
+            <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere", margin: 0 }}>
+              {caseData.latestCallAttempt.transcriptRedacted}
+            </pre>
           </s-box>
         </s-section>
       )}
@@ -211,17 +255,19 @@ export default function CaseDetail() {
                 <fetcher.Form method="POST">
                   <input type="hidden" name="intent" value="approve" />
                   <input type="hidden" name="proposalId" value={caseData.latestProposal.id} />
-                  <button type="submit">Approve</button>
+                  <button type="submit" disabled={fetcher.state !== "idle"}>
+                    {fetcher.state !== "idle" ? "Applying…" : "Approve & apply"}
+                  </button>
                 </fetcher.Form>
                 <fetcher.Form method="POST">
                   <input type="hidden" name="intent" value="reject" />
                   <input type="hidden" name="proposalId" value={caseData.latestProposal.id} />
                   <input type="hidden" name="reason" value="Rejected after merchant review" />
-                  <button type="submit">Reject</button>
+                  <button type="submit" disabled={fetcher.state !== "idle"}>Reject</button>
                 </fetcher.Form>
                 <fetcher.Form method="POST">
                   <input type="hidden" name="intent" value="escalate" />
-                  <button type="submit">Escalate</button>
+                  <button type="submit" disabled={fetcher.state !== "idle"}>Escalate</button>
                 </fetcher.Form>
               </s-stack>
             )}

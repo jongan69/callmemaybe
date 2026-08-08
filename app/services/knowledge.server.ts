@@ -14,10 +14,14 @@ export async function syncShopPolicies(
     const query = `#graphql
       query GetShopPolicies {
         shop {
-          refundPolicy { title body url }
-          shippingPolicy { title body url }
-          privacyPolicy { title body url }
-          termsOfService { title body url }
+          shopPolicies {
+            id
+            title
+            body
+            url
+            type
+            updatedAt
+          }
         }
       }
     `;
@@ -26,10 +30,14 @@ export async function syncShopPolicies(
     const json = (await response.json()) as {
       data?: {
         shop?: {
-          refundPolicy?: { title: string; body: string; url: string };
-          shippingPolicy?: { title: string; body: string; url: string };
-          privacyPolicy?: { title: string; body: string; url: string };
-          termsOfService?: { title: string; body: string; url: string };
+          shopPolicies?: Array<{
+            id: string;
+            title: string;
+            body: string;
+            url: string;
+            type: string;
+            updatedAt: string;
+          }>;
         };
       };
     };
@@ -40,22 +48,24 @@ export async function syncShopPolicies(
       return { synced: 0, errors };
     }
 
-    const policies = [
-      { type: "SHOP_POLICY", data: shop.refundPolicy, appliesTo: ["RETURN", "CANCELLATION", "DAMAGED_ITEM", "WRONG_ITEM", "MISSING_ITEM"] },
-      { type: "SHOP_POLICY", data: shop.shippingPolicy, appliesTo: ["ORDER_STATUS", "ADDRESS_CHANGE"] },
-      { type: "SHOP_POLICY", data: shop.privacyPolicy, appliesTo: [] },
-      { type: "SHOP_POLICY", data: shop.termsOfService, appliesTo: ["OTHER"] },
-    ];
+    const appliesToByType: Record<string, string[]> = {
+      REFUND_POLICY: ["RETURN", "CANCELLATION", "DAMAGED_ITEM", "WRONG_ITEM", "MISSING_ITEM"],
+      SHIPPING_POLICY: ["ORDER_STATUS", "ADDRESS_CHANGE", "CARRIER_TRACE", "STUCK_ORDER_OUTREACH"],
+      PRIVACY_POLICY: [],
+      TERMS_OF_SERVICE: ["OTHER"],
+      SUBSCRIPTION_POLICY: ["OTHER"],
+    };
 
-    for (const { type, data, appliesTo } of policies) {
+    for (const data of shop.shopPolicies ?? []) {
       if (!data?.body) continue;
 
       const content = stripHtml(data.body);
       const contentHash = sha256Hash(content);
+      const appliesTo = appliesToByType[data.type] ?? [];
 
       // Check if already synced
       const existing = await prisma.knowledgeSource.findFirst({
-        where: { shopId, sourceType: type, externalId: data.url ?? type },
+        where: { shopId, sourceType: "SHOP_POLICY", externalId: data.id },
       });
 
       if (existing && existing.contentHash === contentHash) continue;
@@ -67,7 +77,7 @@ export async function syncShopPolicies(
             normalizedContent: content,
             contentHash,
             appliesToJson: JSON.stringify(appliesTo),
-            sourceUpdatedAt: new Date(),
+            sourceUpdatedAt: new Date(data.updatedAt),
             syncedAt: new Date(),
             status: "active",
           },
@@ -76,14 +86,14 @@ export async function syncShopPolicies(
         await prisma.knowledgeSource.create({
           data: {
             shopId,
-            sourceType: type,
-            externalId: data.url ?? type,
-            title: data.title || type.replace(/_/g, " "),
+            sourceType: "SHOP_POLICY",
+            externalId: data.id,
+            title: data.title || data.type.replace(/_/g, " "),
             normalizedContent: content,
             contentHash,
             appliesToJson: JSON.stringify(appliesTo),
             status: "active",
-            sourceUpdatedAt: new Date(),
+            sourceUpdatedAt: new Date(data.updatedAt),
           },
         });
       }
