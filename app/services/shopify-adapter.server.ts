@@ -12,6 +12,10 @@ export interface AdminClient {
 export interface OrderContext {
   orderId: string;
   orderName: string;
+  customerId: string | null;
+  customerName: string | null;
+  customerEmail: string | null;
+  customerPhone: string | null;
   displayFulfillmentStatus: string;
   displayFinancialStatus: string;
   canceledAt: string | null;
@@ -20,7 +24,7 @@ export interface OrderContext {
     id: string;
     title: string;
     quantity: number;
-    fulfillmentStatus: string;
+    unfulfilledQuantity: number;
   }>;
   totalPriceSet: { shopMoney: { amount: string; currencyCode: string } };
   createdAt: string;
@@ -49,7 +53,14 @@ export async function fetchOrderContext(
         name
         displayFulfillmentStatus
         displayFinancialStatus
-        canceledAt
+        canceledAt: cancelledAt
+        customer {
+          id
+          firstName
+          lastName
+          defaultEmailAddress { emailAddress }
+          defaultPhoneNumber { phoneNumber }
+        }
         shippingAddress {
           address1
           address2
@@ -66,7 +77,7 @@ export async function fetchOrderContext(
               id
               title
               quantity
-              fulfillmentStatus
+              unfulfilledQuantity
             }
           }
         }
@@ -99,16 +110,25 @@ export async function fetchOrderContext(
 
   const order = json.data.order as Record<string, unknown>;
   const address = order.shippingAddress as ShippingAddress | null;
+  const customer = order.customer as Record<string, unknown> | null;
   const lineItems = ((order.lineItems as { edges?: Array<{ node: Record<string, unknown> }> })?.edges ?? []).map((e) => ({
     id: e.node.id as string,
     title: e.node.title as string,
     quantity: e.node.quantity as number,
-    fulfillmentStatus: (e.node.fulfillmentStatus as string) || "UNFULFILLED",
+    unfulfilledQuantity: (e.node.unfulfilledQuantity as number) ?? 0,
   }));
 
   return {
     orderId: order.id as string,
     orderName: order.name as string,
+    customerId: (customer?.id as string) || null,
+    customerName: customer
+      ? [customer.firstName, customer.lastName].filter(Boolean).join(" ") || null
+      : null,
+    customerEmail:
+      ((customer?.defaultEmailAddress as { emailAddress?: string } | undefined)?.emailAddress) || null,
+    customerPhone:
+      ((customer?.defaultPhoneNumber as { phoneNumber?: string } | undefined)?.phoneNumber) || null,
     displayFulfillmentStatus: (order.displayFulfillmentStatus as string) || "UNFULFILLED",
     displayFinancialStatus: (order.displayFinancialStatus as string) || "PENDING",
     canceledAt: (order.canceledAt as string) || null,
@@ -135,7 +155,7 @@ export function buildOrderSnapshot(order: OrderContext): OrderSnapshot {
     shippingAddressHash: order.shippingAddress
       ? sha256Hash(JSON.stringify(order.shippingAddress))
       : null,
-    fulfillmentHash: sha256Hash(JSON.stringify(order.lineItems.map((l) => l.fulfillmentStatus))),
+    fulfillmentHash: sha256Hash(JSON.stringify(order.lineItems.map((l) => l.unfulfilledQuantity))),
     lineItemHash: sha256Hash(JSON.stringify(order.lineItems.map((l) => l.id))),
     totalMinor: Math.round(parseFloat(order.totalPriceSet.shopMoney.amount) * 100),
     currencyCode: order.totalPriceSet.shopMoney.currencyCode,
@@ -157,6 +177,18 @@ export function compareOrderSnapshots(
   }
   if (before.cancelledAt !== after.cancelledAt) {
     reasons.push("Order cancellation status changed");
+  }
+  if (before.shippingAddressHash !== after.shippingAddressHash) {
+    reasons.push("Shipping address changed");
+  }
+  if (before.fulfillmentHash !== after.fulfillmentHash) {
+    reasons.push("Line-item fulfillment changed");
+  }
+  if (before.lineItemHash !== after.lineItemHash) {
+    reasons.push("Order line items changed");
+  }
+  if (before.totalMinor !== after.totalMinor || before.currencyCode !== after.currencyCode) {
+    reasons.push("Order total changed");
   }
   if (before.updatedAt !== after.updatedAt) {
     reasons.push("Order was updated during the call");
@@ -310,15 +342,27 @@ export async function cancelOrder(
   }
 
   const mutation = `#graphql
-    mutation CancelOrder($input: OrderCancelInput!) {
-      orderCancel(input: $input) {
-        orderCancel {
-          id
-          canceledAt
-        }
-        userErrors {
+    mutation CancelOrder(
+      $orderId: ID!
+      $notifyCustomer: Boolean
+      $refundMethod: OrderCancelRefundMethodInput!
+      $restock: Boolean!
+      $reason: OrderCancelReason!
+      $staffNote: String
+    ) {
+      orderCancel(
+        orderId: $orderId
+        notifyCustomer: $notifyCustomer
+        refundMethod: $refundMethod
+        restock: $restock
+        reason: $reason
+        staffNote: $staffNote
+      ) {
+        job { id done }
+        orderCancelUserErrors {
           field
           message
+          code
         }
       }
     }
@@ -326,25 +370,60 @@ export async function cancelOrder(
 
   const response = await admin.graphql(mutation, {
     variables: {
-      input: {
-        id: orderId,
-        reason: "CUSTOMER",
-        note: reason,
-      },
+      orderId,
+      notifyCustomer: true,
+      refundMethod: { originalPaymentMethodsRefund: true },
+      restock: true,
+      reason: "CUSTOMER",
+      staffNote: reason.slice(0, 255),
     },
   });
 
   const json = (await response.json()) as {
     data?: {
       orderCancel?: {
-        orderCancel?: { id: string; canceledAt: string };
-        userErrors?: Array<{ field?: string[]; message: string }>;
+        job?: { id: string; done: boolean };
+        orderCancelUserErrors?: Array<{ field?: string[]; message: string; code?: string }>;
       };
     };
   };
 
   const result = json.data?.orderCancel;
-  const userErrors = result?.userErrors ?? [];
+  const userErrors = result?.orderCancelUserErrors ?? [];
+  const jobId = result?.job?.id;
+
+  if (userErrors.length === 0 && jobId) {
+    const jobQuery = `#graphql
+      query CancellationJob($id: ID!) {
+        job(id: $id) { id done }
+      }
+    `;
+
+    let done = result?.job?.done ?? false;
+    for (let attempt = 0; !done && attempt < 20; attempt++) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const jobResponse = await admin.graphql(jobQuery, { variables: { id: jobId } });
+      const jobJson = (await jobResponse.json()) as {
+        data?: { job?: { id: string; done: boolean } };
+      };
+      done = jobJson.data?.job?.done ?? false;
+    }
+
+    if (!done) {
+      userErrors.push({
+        message: "Shopify accepted the cancellation, but it did not finish in time. Verify the order before retrying.",
+      });
+    } else {
+      const confirmed = await fetchOrderContext(admin, orderId);
+      if (!confirmed.canceledAt) {
+        userErrors.push({
+          message: "Shopify finished the cancellation job without marking the order cancelled.",
+        });
+      }
+    }
+  } else if (userErrors.length === 0) {
+    userErrors.push({ message: "Shopify did not return a cancellation job." });
+  }
 
   return {
     success: userErrors.length === 0,
@@ -354,9 +433,11 @@ export async function cancelOrder(
     attemptedAt,
     completedAt: userErrors.length === 0 ? new Date().toISOString() : undefined,
     before,
+    after: jobId ? { jobId } : undefined,
     userErrors: userErrors.map((e) => ({
       field: e.field,
       message: e.message,
+      code: e.code,
     })),
     requestId: generateRequestId(),
   };

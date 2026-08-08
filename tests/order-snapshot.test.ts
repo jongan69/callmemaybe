@@ -17,6 +17,10 @@ function orderFixture(overrides: Partial<OrderContext> = {}): OrderContext {
   return {
     orderId: "gid://shopify/Order/1043",
     orderName: "#1043",
+    customerId: "gid://shopify/Customer/5501",
+    customerName: "Alex Johnson",
+    customerEmail: "alex@example.com",
+    customerPhone: "+15035550199",
     displayFulfillmentStatus: "UNFULFILLED",
     displayFinancialStatus: "PAID",
     canceledAt: null,
@@ -28,7 +32,7 @@ function orderFixture(overrides: Partial<OrderContext> = {}): OrderContext {
       countryCodeV2: "US",
     },
     lineItems: [
-      { id: "li_1", title: "Trail Jacket", quantity: 1, fulfillmentStatus: "UNFULFILLED" },
+      { id: "li_1", title: "Trail Jacket", quantity: 1, unfulfilledQuantity: 1 },
     ],
     totalPriceSet: { shopMoney: { amount: "124.00", currencyCode: "USD" } },
     createdAt: "2026-07-24T10:00:00Z",
@@ -131,6 +135,34 @@ describe("compareOrderSnapshots — what must block execution", () => {
     const result = compareOrderSnapshots(before, after);
     assert.equal(result.changed, true);
     assert.ok(result.reasons.some((r) => /updated during the call/.test(r)));
+  });
+
+  test("blocks when the shipping address changes", () => {
+    const before = buildOrderSnapshot(orderFixture());
+    const after = buildOrderSnapshot(orderFixture({
+      shippingAddress: {
+        address1: "900 Pine Street",
+        city: "Portland",
+        province: "OR",
+        zip: "97205",
+        countryCodeV2: "US",
+      },
+    }));
+
+    const result = compareOrderSnapshots(before, after);
+    assert.equal(result.changed, true);
+    assert.ok(result.reasons.some((reason) => reason.includes("Shipping address")));
+  });
+
+  test("blocks when the order total changes", () => {
+    const before = buildOrderSnapshot(orderFixture());
+    const after = buildOrderSnapshot(orderFixture({
+      totalPriceSet: { shopMoney: { amount: "129.00", currencyCode: "USD" } },
+    }));
+
+    const result = compareOrderSnapshots(before, after);
+    assert.equal(result.changed, true);
+    assert.ok(result.reasons.some((reason) => reason.includes("total")));
   });
 
   test("reports every reason, not just the first", () => {

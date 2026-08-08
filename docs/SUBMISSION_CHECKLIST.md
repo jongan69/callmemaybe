@@ -1,80 +1,56 @@
-# Hackathon submission checklist
+# Submission checklist
 
-Claims here are only ticked when the code actually does the thing. An earlier
-version of this file ticked several boxes that were not true; those are marked
-where relevant so the history is legible.
+This list separates repository-complete work from external actions that require
+the submitter's accounts, controlled phone numbers, or legal declarations.
 
-## Product
+## Repository and product
 
-- [x] Merchant admin (overview, outreach, cases, approvals, automations, settings)
-- [x] Customer-account UI extension
-- [x] Support case lifecycle: create → plan → call → result → policy → resolution
-- [x] Two call legs: carrier (third-party) and customer
-- [x] Fixture provider with 14 scenarios, places no calls
-- [x] Structured result validation against issue-specific schemas
-- [x] One-time verification codes, two-attempt limit
-- [x] Policy engine (INFORMATIONAL / AUTOMATIC / APPROVAL / DISABLED)
-- [x] Consent capture
-- [x] Rate limiting and duplicate prevention
-- [x] Append-only audit trail
-- [x] **Shopify mutations execute on approval** — was previously ticked while
-      the adapter was dead code; approval wrote a database row and stopped
-- [ ] Knowledge sync from Shopify policies — code exists, nothing calls it
-- [ ] Stuck-order detection from Shopify — currently seeded
+- [x] Merchant overview, outreach, cases, approvals, automations, and settings
+- [x] Customer-account and thank-you UI extensions
+- [x] Carrier and customer call workflows
+- [x] Official CALL-E SDK plus safe fixture provider
+- [x] Strict per-issue structured-result schemas
+- [x] Deterministic policy engine with mutation approval defense
+- [x] Fresh Shopify order re-read and comprehensive drift abort
+- [x] Current Shopify mutations validated against 2026-07
+- [x] Shopify policy-text sync wired into Settings
+- [x] Live recent orders and tracking context in Outreach
+- [x] Session-token shop/customer/order scoping
+- [x] Consent, rate limits, deduplication, idempotency, and audit trail
+- [x] Encrypted raw personal data and redacted merchant transcript
+- [x] Configurable transcript retention and 30-day privacy export expiry
+- [x] Mandatory data request/customer redact/shop redact webhooks
+- [x] Public landing, logo, icon, project cover, README, security policy, and CI
+- [x] 57 tests, typecheck, lint, production build, and migration verification
 
-## Safety
+## Demo environment
 
-- [x] AI disclosure in every task instruction
-- [x] Identity verification before order disclosure (customer legs)
-- [x] Carrier leg explicitly exempt from identity verification, and forbidden
-      from accepting a resolution on the customer's behalf
-- [x] Safe wrong-code / wrong-person / decline / voicemail behaviour
-- [x] E.164 enforcement
-- [x] Duplicate call prevention
-- [x] Irreversible actions require approval by default
-- [x] **Order re-fetched and compared before mutation; aborts on drift** — was
-      previously ticked with no re-fetch and no mutation
-- [x] **Customer API validates the Shopify session token** — was previously
-      ticked while the endpoint only checked that the header began with "Bearer"
-- [x] Shop and customer identity taken from the token, never the request body
-- [x] Secrets server-side only
-- [x] Phone numbers, task text and transcripts encrypted at rest
-- [x] Two independent switches required before any real call is placed
-- [x] Compliance webhooks configured
-- [ ] Transcript redaction — `transcriptRedacted` stores raw text
+- [ ] Fill `.env` with the final Shopify/CALL-E credentials
+- [ ] Generate production encryption/hash secrets
+- [ ] Run `npm run verify:calle`
+- [ ] Complete one controlled real call end to end
+- [ ] Confirm the carrier stand-in disclosure is in the narration
+- [ ] Enable the customer-account and thank-you extensions on the dev store
+- [ ] Create a private token-protected reviewer URL or include install steps
+- [ ] Verify `/health` and the complete reviewer path from a signed-out browser
 
-## Engineering
+## Devpost
 
-- [x] Migration works from zero
-- [x] Seed works
-- [x] Fixture provider works with no credential
-- [x] Typecheck passes
-- [x] Lint passes with zero warnings
-- [x] Production build passes
-- [x] 52 tests, verified non-vacuous by mutation testing
-- [x] `.env.example` complete, with no dead keys
-- [x] Architecture and integration documentation
+- [x] Project name, tagline, long description, technology list, and testing copy
+      prepared in `docs/DEVPOST_SUBMISSION.md`
+- [x] 1200×630 thumbnail prepared at `public/devpost-cover.png`
+- [x] Three-minute shot list and narration prepared
+- [ ] Record, caption, and publicly upload the video
+- [x] Add the community-list PR URL: https://github.com/CALLE-AI/awesome-phone-call-agents/pull/125
+- [ ] Enter the CALL-E account email
+- [ ] Enter the submitter's true country and eligibility/conflict declarations
+- [ ] Review the draft while signed out
+- [ ] Click final submit
 
-## Deployment
+## Shopify App Store (not required for the hackathon)
 
-- [ ] `.env` filled from `.env.example`
-- [ ] `npm run verify:calle` passes
-- [ ] One real call completed end to end
-- [ ] `shopify app deploy`
-- [ ] Customer-account extension enabled on the dev store
-- [ ] Judge-reachable demo
-
-## Submission
-
-- [ ] 3-minute demo video, publicly visible
-- [ ] Devpost description
-- [ ] PR to `CALLE-AI/awesome-phone-call-agents`
-- [ ] CALL-E account email provided
-- [ ] Feedback survey (eligible for a separate prize)
-
-## Demo
-
-See `docs/DEMO_SCRIPT.md`. One order, two calls.
-
-The carrier line in the demo is a stand-in that we control, and the video says
-so out loud. Do not remove that disclosure.
+- [x] Code-level self-review documented in `docs/SHOPIFY_APP_REVIEW.md`
+- [ ] Stable HTTPS production deployment
+- [ ] Listing privacy/support/terms URLs
+- [ ] Billing decision and configuration
+- [ ] Reviewer credentials and compliance-webhook delivery evidence

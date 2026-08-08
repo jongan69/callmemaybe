@@ -1,21 +1,15 @@
-# Customer account UI Extension
+# CallmeMaybe customer-account extension
 
-## Prerequisites
+This extension adds three surfaces to Shopify customer accounts:
 
-Before you start building your extension, make sure that you’ve created a [development store](https://shopify.dev/docs/apps/tools/development-stores) with the [Checkout and Customer Accounts Extensibility](https://shopify.dev/docs/api/release-notes/developer-previews#previewing-new-features).
+- an order action menu item for **Get phone support**;
+- a full-page consent and issue-selection flow;
+- a status block for the latest support case on an order.
 
-## Your new Extension
+Every API request includes a Shopify customer-account session token. The server
+derives the shop/customer identity from that token and verifies live order
+ownership; customer, phone, and order identity are never trusted from the
+request body.
 
-Your new extension contains the following files:
-
-- `README.md`, the file you are reading right now.
-- `shopify.extension.toml`, the configuration file for your extension. This file defines your extension’s name.
-- `src/*.jsx`, the source code for your extension.
-- `locales/en.default.json` and `locales/fr.json`, which contain translations used to [localized your extension](https://shopify.dev/docs/apps/checkout/best-practices/localizing-ui-extensions).
-
-## Useful Links
-
-- [Customer account UI extension documentation](https://shopify.dev/docs/api/customer-account-ui-extensions)
-  - [Configuration](https://shopify.dev/docs/api/customer-account-ui-extensions/unstable/configuration)
-  - [API Reference](https://shopify.dev/docs/api/customer-account-ui-extensions/unstable/apis)
-  - [UI Components](https://shopify.dev/docs/api/customer-account-ui-extensions/unstable/components)
+Run it with the parent app through `npm run dev`. Enable the targets in the
+development store's customer-account editor. API version: 2026-07.

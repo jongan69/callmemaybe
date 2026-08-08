@@ -24,14 +24,17 @@ export async function getShopPolicies(
   if (stored.length === 0) {
     return DEFAULT_POLICIES;
   }
-  return stored.map((p) => ({
-    issueType: p.issueType as IssueType,
-    mode: p.mode as PolicyMode,
-    enabled: p.enabled,
-    requireVerifiedIdentity: true,
-    ...(JSON.parse(p.conditionsJson) as Record<string, unknown>),
-    customInstructions: p.customInstructions ?? undefined,
-  })) as SupportPolicy[];
+  return stored.map((p) => {
+    const conditions = JSON.parse(p.conditionsJson) as Partial<SupportPolicy>;
+    return {
+      ...conditions,
+      issueType: p.issueType as IssueType,
+      mode: p.mode as PolicyMode,
+      enabled: p.enabled,
+      requireVerifiedIdentity: conditions.requireVerifiedIdentity ?? true,
+      customInstructions: p.customInstructions ?? undefined,
+    };
+  }) as SupportPolicy[];
 }
 
 export async function getPolicyForIssue(
@@ -42,12 +45,13 @@ export async function getPolicyForIssue(
     where: { shopId_issueType: { shopId, issueType } },
   });
   if (stored) {
+    const conditions = JSON.parse(stored.conditionsJson) as Partial<SupportPolicy>;
     return {
+      ...conditions,
       issueType: stored.issueType as IssueType,
       mode: stored.mode as PolicyMode,
       enabled: stored.enabled,
-      requireVerifiedIdentity: true,
-      ...(JSON.parse(stored.conditionsJson) as Record<string, unknown>),
+      requireVerifiedIdentity: conditions.requireVerifiedIdentity ?? true,
       customInstructions: stored.customInstructions ?? undefined,
     } as SupportPolicy;
   }
@@ -251,12 +255,21 @@ export function evaluatePolicy(
     };
   }
 
+  const isNonMutating = actionType === "EXPLAIN_STATUS" || actionType === "ESCALATE";
+  const effectiveMode = policy.mode === "AUTOMATIC" && !isNonMutating
+    ? "APPROVAL"
+    : policy.mode;
+
   return {
     eligible: true,
-    mode: policy.mode,
+    mode: effectiveMode,
     riskLevel,
-    reasonCodes: [],
-    humanReadableReasons: ["Policy evaluation passed"],
+    reasonCodes: effectiveMode !== policy.mode ? ["HUMAN_APPROVAL_REQUIRED"] : [],
+    humanReadableReasons: [
+      effectiveMode !== policy.mode
+        ? "Policy passed; Shopify mutations require merchant approval"
+        : "Policy evaluation passed",
+    ],
     requiredChecks: checks,
     actionType,
     snapshotHash,

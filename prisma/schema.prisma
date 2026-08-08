@@ -7,7 +7,7 @@ generator client {
 
 datasource db {
   provider = "sqlite"
-  url      = "file:dev.sqlite"
+  url      = env("DATABASE_URL")
 }
 
 // ─── Shopify Session (scaffold) ──────────────────────────────
@@ -347,4 +347,23 @@ model UsageLedger {
   estimatedCostMinor Int?
   currencyCode      String   @default("USD")
   occurredAt        DateTime @default(now())
+}
+
+// Durable, authenticated privacy work queue. Customer exports are encrypted at
+// rest and expire after 30 days; redaction receipts never store raw customer IDs.
+model PrivacyRequest {
+  id                 String    @id @default(cuid())
+  shopDomain         String
+  topic              String
+  webhookEventIdHash String    @unique
+  customerIdHash     String?
+  status             String    @default("RECEIVED")
+  exportEncrypted    String?
+  errorMessage       String?
+  receivedAt         DateTime  @default(now())
+  completedAt        DateTime?
+  expiresAt          DateTime?
+
+  @@index([shopDomain, receivedAt])
+  @@index([shopDomain, customerIdHash])
 }

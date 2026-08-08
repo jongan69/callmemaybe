@@ -117,6 +117,7 @@ export async function generateCustomerTaskText(params: {
   orderName: string;
   orderContext: string; // what's happening with this order
   policyInstructions: string;
+  verificationCode?: string;
 }): Promise<string | null> {
   const cfg = getConfig();
   if (cfg.provider === "none") return null;
@@ -129,12 +130,20 @@ CONTEXT:
 - Order: ${params.orderName}
 - Situation: ${params.orderContext}
 
+VERIFICATION METHOD:
+${params.verificationCode
+    ? `- Ask for the six-digit CallmeMaybe support code shown in the customer's signed-in account.
+- The expected code is ${params.verificationCode}. Never reveal it or hint at it.
+- Allow no more than two attempts. If neither matches exactly, disclose nothing, set identity_status to incorrect_code, and end the call.`
+    : `- This is merchant-initiated outreach and the customer is not at a screen.
+- Ask the person to confirm their name and order number before disclosing other order details.
+- If either does not match, disclose nothing and end the call.`}
+
 BEHAVIOR RULES:
 - The agent must disclose it is an AI assistant and state the call may be transcribed.
-- The agent must verify the person's identity by asking them to confirm their name and order number before disclosing any order details.
-- If the name or order number do not match, politely end the call.
-- The agent must NOT ask for codes, passwords, OTPs, payment details, or financial information.
-- The agent must clearly identify ${params.storeName} and the order ${params.orderName} at the start.
+- The agent must not disclose order details until the verification method above succeeds.
+- The agent must NOT ask for passwords, payment details, or financial information.
+- The agent must clearly identify ${params.storeName} and why it is calling at the start.
 - The agent must capture the customer's decision clearly.
 - The agent must read back any consequential details (addresses, dates, amounts) and ask the customer to confirm.
 - The agent must not offer discounts, refunds, or credits that were not authorized.

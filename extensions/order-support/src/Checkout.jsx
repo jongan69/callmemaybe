@@ -12,13 +12,9 @@ function Extension() {
         <s-text>
           Missing delivery? Wrong address? Damaged item? Get a call back from an AI support assistant in under a minute.
         </s-text>
-        <s-button
-          href="https://chevy-board-tradition-suzuki.trycloudflare.com/demo/customer"
-          target="_blank"
-          kind="primary"
-        >
-          Get phone support
-        </s-button>
+        <s-text>
+          Open this order in your customer account and choose Get support whenever you need us.
+        </s-text>
       </s-stack>
     </s-banner>
   );

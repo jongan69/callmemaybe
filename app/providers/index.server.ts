@@ -10,16 +10,11 @@ export function getPhoneProvider(): PhoneSupportProvider {
     if (mode === "fake" || process.env.CALLE_REAL_CALLS_ENABLED !== "true") {
       provider = getFakeProvider();
     } else {
-      try {
-        provider = new CallePhoneSupportProvider();
-        console.log("[CallmeMaybe] Using real CALL-E provider");
-      } catch (error) {
-        console.warn(
-          "[CallmeMaybe] Failed to initialize CALL-E provider, falling back to fake:",
-          error instanceof Error ? error.message : error,
-        );
-        provider = getFakeProvider();
-      }
+      // Once both live-call gates are deliberately enabled, a configuration
+      // error must be loud. Silently falling back to fixtures would make a demo
+      // look successful without ever using CALL-E.
+      provider = new CallePhoneSupportProvider();
+      console.log("[CallmeMaybe] Using real CALL-E provider");
     }
   }
   return provider;

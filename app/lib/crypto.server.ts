@@ -1,12 +1,23 @@
 import crypto from "node:crypto";
 
 const ENCRYPTION_KEY = process.env.APP_ENCRYPTION_KEY;
-const HASH_PEPPER = process.env.HASH_PEPPER || "callmemaybe-pepper";
+
+function getHashPepper(): string {
+  if (process.env.HASH_PEPPER) return process.env.HASH_PEPPER;
+  if (process.env.NODE_ENV === "production") {
+    throw new Error("HASH_PEPPER is required in production");
+  }
+  return "callmemaybe-development-pepper";
+}
 
 function getKey(): Buffer {
   if (!ENCRYPTION_KEY) {
-    // In dev/fake mode, derive a key from the pepper
-    return crypto.scryptSync(HASH_PEPPER, "callmemaybe-salt", 32);
+    if (process.env.NODE_ENV === "production") {
+      throw new Error("APP_ENCRYPTION_KEY is required in production");
+    }
+    // Fixture mode stays zero-config, but this development key is never allowed
+    // to protect production data.
+    return crypto.scryptSync(getHashPepper(), "callmemaybe-salt", 32);
   }
   const key = Buffer.from(ENCRYPTION_KEY, "hex");
   if (key.length !== 32) {
@@ -47,7 +58,7 @@ export function decrypt(ciphertext: string): string {
 
 export function hashForMatching(value: string): string {
   return crypto
-    .createHmac("sha256", HASH_PEPPER)
+    .createHmac("sha256", getHashPepper())
     .update(value.toLowerCase().trim())
     .digest("hex");
 }
@@ -55,7 +66,7 @@ export function hashForMatching(value: string): string {
 export function hashSecret(value: string): string {
   const salt = crypto.randomBytes(16).toString("hex");
   const hash = crypto
-    .createHmac("sha256", HASH_PEPPER)
+    .createHmac("sha256", getHashPepper())
     .update(`${salt}:${value}`)
     .digest("hex");
   return `${salt}:${hash}`;
@@ -66,7 +77,7 @@ export function verifySecretHash(value: string, stored: string): boolean {
   if (parts.length !== 2) return false;
   const [salt, hash] = parts;
   const expected = crypto
-    .createHmac("sha256", HASH_PEPPER)
+    .createHmac("sha256", getHashPepper())
     .update(`${salt}:${value}`)
     .digest("hex");
   return crypto.timingSafeEqual(Buffer.from(hash), Buffer.from(expected));
@@ -117,6 +128,46 @@ export function redactEmail(email: string): string {
   if (!domain) return "***";
   const visible = local.slice(0, Math.min(3, local.length));
   return `${visible}***@${domain}`;
+}
+
+/**
+ * Produce the transcript copy that is safe to render in the merchant UI.
+ *
+ * The encrypted transcript remains the source record. This display copy strips
+ * common contact/payment identifiers and any exact sensitive values collected
+ * during the call (for example a newly dictated shipping address).
+ */
+export function redactTranscript(
+  transcript: string,
+  sensitiveValues: Array<string | null | undefined> = [],
+): string {
+  let redacted = transcript;
+
+  const exactValues = [...new Set(
+    sensitiveValues
+      .map((value) => value?.trim())
+      .filter((value): value is string => Boolean(value && value.length >= 4)),
+  )].sort((a, b) => b.length - a.length);
+
+  for (const value of exactValues) {
+    redacted = redacted.replaceAll(value, "[redacted]");
+  }
+
+  return redacted
+    .replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi, "[email redacted]")
+    .replace(/(?<!\w)(?:\+?\d[\d().\s-]{7,}\d)(?!\w)/g, (candidate) => {
+      const digits = candidate.replace(/\D/g, "");
+      if (digits.length >= 13 && digits.length <= 19) {
+        return "[payment number redacted]";
+      }
+      if (digits.length >= 10 && digits.length <= 15) {
+        return "[phone redacted]";
+      }
+      return candidate;
+    })
+    .replace(/\b(?:code|pin|verification code)(\s*(?:is|:)?\s*)\d{4,8}\b/gi, (_match, separator) =>
+      `verification code${separator}[redacted]`,
+    );
 }
 
 export function lastFour(phone: string): string {

@@ -14,6 +14,7 @@ import {
   decrypt,
   hashForMatching,
   lastFour,
+  redactTranscript,
 } from "../lib/crypto.server";
 import { getPhoneProvider } from "../providers/index.server";
 import { getPolicyForIssue, evaluatePolicy } from "./policy.server";
@@ -140,7 +141,7 @@ export async function createSupportCase(params: {
         create: {
           consentTextVersion: "1.0",
           consentText:
-            "I am requesting an automated AI support call about this order. I understand the call may be transcribed.",
+            "I am requesting an automated AI support call about this order. I understand the call may be transcribed or recorded as described by the store.",
           phoneHash,
           customerId: params.shopifyCustomerId,
           orderId: params.shopifyOrderId,
@@ -362,6 +363,7 @@ async function buildTaskTextForIssue(
       orderName: params.orderName ?? params.orderSnapshot.orderId,
       orderContext: `Issue: ${params.issueType}. Order status: ${params.orderSnapshot.fulfillmentStatus}.`,
       policyInstructions,
+      verificationCode: params.verificationCode,
     });
     if (generated) return generated;
   }
@@ -542,6 +544,17 @@ export async function processCallResult(
   });
 
   const normalizedCall = await provider.getCall(callAttempt.providerCallId);
+  const structuredResult = normalizedCall.structuredResult ?? {};
+  const transcriptSensitiveValues = [
+    normalizedCall.recipientPhone,
+    structuredResult.address_line_1,
+    structuredResult.address_line_2,
+    structuredResult.city,
+    structuredResult.province_or_state,
+    structuredResult.postal_code,
+    structuredResult.recipient_name,
+    structuredResult.phone,
+  ].filter((value): value is string => typeof value === "string");
 
   // Update call attempt
   await prisma.callAttempt.update({
@@ -559,7 +572,9 @@ export async function processCallResult(
       transcriptEncrypted: normalizedCall.transcript
         ? encrypt(normalizedCall.transcript)
         : null,
-      transcriptRedacted: normalizedCall.transcript ?? null,
+      transcriptRedacted: normalizedCall.transcript
+        ? redactTranscript(normalizedCall.transcript, transcriptSensitiveValues)
+        : null,
       evidenceJson: normalizedCall.evidence
         ? JSON.stringify(normalizedCall.evidence)
         : null,
@@ -606,8 +621,6 @@ export async function processCallResult(
   if (!supportCase || !supportCase.orderSnapshotJson) return;
 
   const orderSnapshot: OrderSnapshot = JSON.parse(supportCase.orderSnapshotJson);
-  const structuredResult = normalizedCall.structuredResult ?? {};
-
   // Evaluate policy
   const policy = await getPolicyForIssue(shopId, supportCase.issueType as IssueType);
   const settings = await prisma.shopSettings.findUnique({
@@ -696,9 +709,16 @@ function buildWebhookUrl(): string | undefined {
 
 // ─── Get Case ────────────────────────────────────────────────
 
-export async function getSupportCase(publicReference: string) {
-  const case_ = await prisma.supportCase.findUnique({
-    where: { publicReference },
+export async function getSupportCase(
+  publicReference: string,
+  scope?: { shopId?: string; customerId?: string },
+) {
+  const case_ = await prisma.supportCase.findFirst({
+    where: {
+      publicReference,
+      ...(scope?.shopId ? { shopId: scope.shopId } : {}),
+      ...(scope?.customerId ? { shopifyCustomerId: scope.customerId } : {}),
+    },
     include: {
       callAttempts: {
         orderBy: { createdAt: "desc" },

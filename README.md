@@ -1,6 +1,17 @@
-# CallmeMaybe
+<p align="center">
+  <img src="public/logo-lockup.svg" alt="CallmeMaybe" width="310" />
+</p>
 
-**Phone work for Shopify stores, done by an agent and gated by policy.**
+<p align="center"><strong>Phone work for Shopify stores, done by an agent and gated by policy.</strong></p>
+
+<p align="center">
+  <a href="docs/DEMO_SCRIPT.md">3-minute demo</a> ·
+  <a href="docs/ARCHITECTURE.md">Architecture</a> ·
+  <a href="SECURITY.md">Security</a> ·
+  <a href="docs/DEVPOST_SUBMISSION.md">Submission copy</a>
+</p>
+
+![CallmeMaybe project cover](public/devpost-cover.png)
 
 Some support work can't be done on a screen. The carrier that marked a package
 delivered has no API for a small shipper — just a phone number and a hold queue.
@@ -12,8 +23,9 @@ CallmeMaybe puts a Shopify store on the phone for both, and turns what gets said
 into an audited, policy-gated change to the order.
 
 Built on [CALL-E](https://www.heycall-e.com/) for the calling and Shopify's
-Admin API for the resolution. Those are the only two external services — no
-analytics, no error tracker, no email provider.
+Admin API for the resolution. The core path uses only those two external
+services—no analytics, error tracker, or email provider. Optional LLM-generated
+task wording can be enabled, but never participates in authorization.
 
 ---
 
@@ -98,11 +110,13 @@ app/
     resolution.server.ts       Execution: drift check, mutate, receipt, audit.
     shopify-adapter.server.ts  Admin GraphQL reads and mutations.
     audit.server.ts            Append-only event log.
+    privacy.server.ts          Encrypted exports and complete tenant redaction.
   routes/
     app.outreach.tsx           Merchant-initiated calls on blocked orders.
     app.cases.$caseId.tsx      Case detail, approval, execution.
     api.customer-support.*     Customer-account extension API.
     webhooks.calle.$token.tsx  Terminal call results from CALL-E.
+    webhooks.compliance.tsx    Mandatory Shopify privacy webhooks.
 ```
 
 `docs/CALLE_INTEGRATION.md` covers the CALL-E contract in detail — including
@@ -114,12 +128,12 @@ Prerequisites: Node 20.19+ or 22.12+, a Shopify Partner account and development
 store (both free), and a CALL-E account (20 free calls).
 
 ```bash
-npm install
+npm ci
 cp .env.example .env          # then fill it in — every key is documented
-npx prisma migrate dev
-npx tsx prisma/seed.ts
+npm run setup                 # Prisma client + all migrations
+npm run seed                  # only writes when DEMO_SEED=true
 npm run verify:calle          # checks credentials, places NO call
-shopify app dev
+npm run dev                   # Shopify CLI tunnel + development store
 ```
 
 `.env.example` documents every variable. There are no dead keys in it; if a
@@ -148,9 +162,7 @@ carrier's support number.
 ## Testing
 
 ```bash
-npm test          # 52 tests, Node's built-in runner, no extra dependency
-npm run typecheck
-npm run lint
+npm run check     # 57 tests + typecheck + lint + production build
 ```
 
 The tests assert the CALL-E request body field-by-field against the published
@@ -168,19 +180,17 @@ property of the whole unsigned-webhook design, pinned down.
 
 Stated plainly, because a README that only lists strengths isn't useful.
 
-- **Stuck-order detection is seeded, not synced.** `StuckOrder` rows come from
-  the seed script. Production would populate them from Shopify — unfulfilled
-  orders past an SLA, delivery exceptions, bounced notifications.
-- **`knowledge.server.ts` is not wired in.** Policy-text sync exists as code but
-  nothing calls it.
-- **Transcripts are stored unredacted.** `CallAttempt.transcriptRedacted` holds
-  the raw transcript. The encrypted copy is fine; the column name is a promise
-  the code doesn't keep.
+- **Exception classification is merchant-driven.** Outreach reads recent live
+  Shopify orders and tracking data, but it does not yet ingest carrier exception
+  feeds or automatically decide which orders are stuck.
 - **Retries are single-attempt.** `attemptNumber` is plumbed through but nothing
   schedules a second call after a no-answer.
 - **Carrier calls are unproven at scale.** Whether real carrier contact centres
   will cooperate with a disclosed AI caller is an open question. The demo uses a
   stand-in line.
+- **The packaged database is SQLite.** That is ideal for a judgeable single
+  instance; a horizontally scaled deployment should move Prisma to a managed SQL
+  database and run retention cleanup on a scheduler.
 
 ## Licence
 

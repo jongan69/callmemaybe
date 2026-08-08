@@ -1,6 +1,6 @@
 import "@shopify/ui-extensions/preact";
 import { render } from "preact";
-import { useOrder, useCustomer } from "@shopify/ui-extensions/preact";
+import { useOrder } from "@shopify/ui-extensions/preact";
 
 export default async () => {
   render(<GetSupportAction />, document.body);

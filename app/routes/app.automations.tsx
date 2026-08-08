@@ -6,6 +6,8 @@ import { getShopPolicies } from "../services/policy.server";
 import prisma from "../db.server";
 import { DEFAULT_POLICIES } from "../lib/types";
 
+const SAFE_AUTOMATIC_ISSUES = new Set(["ORDER_STATUS", "PRODUCT_HELP"]);
+
 export const loader = async ({ request }: LoaderFunctionArgs) => {
   const { session } = await authenticate.admin(request);
 
@@ -47,8 +49,16 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   if (!settings) throw new Error("Shop settings not found");
 
   const issueType = formData.get("issueType") as string;
-  const mode = formData.get("mode") as string;
-  const enabled = formData.get("enabled") === "true";
+  const requestedMode = String(formData.get("mode") ?? "APPROVAL");
+  const validModes = new Set(["AUTOMATIC", "APPROVAL", "INFORMATIONAL", "DISABLED"]);
+  if (!validModes.has(requestedMode)) {
+    return { saved: false, error: "Unsupported policy mode." };
+  }
+  if (requestedMode === "AUTOMATIC" && !SAFE_AUTOMATIC_ISSUES.has(issueType)) {
+    return { saved: false, error: "Shopify-changing actions always require merchant approval." };
+  }
+  const mode = requestedMode;
+  const enabled = mode !== "DISABLED";
 
   await prisma.supportPolicy.upsert({
     where: { shopId_issueType: { shopId: settings.id, issueType } },
@@ -56,7 +66,7 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     update: { enabled, mode },
   });
 
-  return { saved: true };
+  return { saved: true, error: null };
 };
 
 const ISSUE_LABELS: Record<string, string> = {
@@ -68,6 +78,8 @@ const ISSUE_LABELS: Record<string, string> = {
   WRONG_ITEM: "Wrong item received",
   MISSING_ITEM: "Missing item",
   PRODUCT_HELP: "Product help",
+  CARRIER_TRACE: "Carrier package trace",
+  STUCK_ORDER_OUTREACH: "Stuck-order customer outreach",
   OTHER: "Other inquiries",
 };
 
@@ -78,7 +90,7 @@ export default function Automations() {
   return (
     <s-page heading="Automation policies">
       <s-section heading="Configure what the AI agent can do automatically">
-        <s-text>For each issue type, choose whether the AI agent can resolve automatically, requires your approval, only provides information, or is disabled.</s-text>
+        <s-text>Informational work can resolve automatically. Any action that writes to Shopify always requires merchant approval, even if a stored policy is misconfigured.</s-text>
 
         {policies.map((policy) => (
           <s-box key={policy.issueType} padding="base" borderWidth="base" borderRadius="base">
@@ -94,7 +106,7 @@ export default function Automations() {
               <fetcher.Form method="POST">
                 <input type="hidden" name="issueType" value={policy.issueType} />
                 <s-stack direction="inline" gap="base">
-                  <button type="submit" name="mode" value="AUTOMATIC" disabled={policy.mode === "AUTOMATIC" && policy.enabled}>
+                  <button type="submit" name="mode" value="AUTOMATIC" title={SAFE_AUTOMATIC_ISSUES.has(policy.issueType) ? "Resolve informational work automatically" : "Shopify changes require approval"} disabled={!SAFE_AUTOMATIC_ISSUES.has(policy.issueType) || (policy.mode === "AUTOMATIC" && policy.enabled)}>
                     Auto
                   </button>
                   <button type="submit" name="mode" value="APPROVAL" disabled={policy.mode === "APPROVAL" && policy.enabled}>
@@ -114,6 +126,9 @@ export default function Automations() {
 
         {fetcher.data?.saved && (
           <s-banner tone="success">Policy updated successfully</s-banner>
+        )}
+        {fetcher.data?.error && (
+          <s-banner tone="critical"><s-text>{fetcher.data.error}</s-text></s-banner>
         )}
       </s-section>
     </s-page>

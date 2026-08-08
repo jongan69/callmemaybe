@@ -10,7 +10,9 @@ import {
   buildOrderSnapshot,
 } from "../services/shopify-adapter.server";
 import { ErrorCodes, createError, errorToResponse } from "../lib/errors.server";
-import { redactPhone } from "../lib/crypto.server";
+import { hashForMatching, redactPhone } from "../lib/crypto.server";
+import { IssueType as IssueTypes } from "../lib/types";
+import type { IssueType } from "../lib/types";
 import prisma from "../db.server";
 
 // Customer-facing endpoint, called from the customer-account UI extension.
@@ -53,9 +55,9 @@ export async function action({ request }: ActionFunctionArgs) {
     }
 
     const body = await request.json();
-    const { orderId, issueType, consentGiven, customerPhone: rawPhone } = body;
+    const { orderId, issueType, consentGiven } = body;
 
-    if (!orderId || !issueType) {
+    if (!orderId || !isIssueType(issueType)) {
       return cors(
         Response.json(
           errorToResponse(
@@ -66,7 +68,7 @@ export async function action({ request }: ActionFunctionArgs) {
               {
                 fieldErrors: {
                   ...(!orderId ? { orderId: ["Required"] } : {}),
-                  ...(!issueType ? { issueType: ["Required"] } : {}),
+                  ...(!isIssueType(issueType) ? { issueType: ["Unsupported issue type"] } : {}),
                 },
               },
             ),
@@ -84,22 +86,6 @@ export async function action({ request }: ActionFunctionArgs) {
               ErrorCodes.CONSENT_REQUIRED,
               "Consent required",
               "You must consent to receive an AI support call.",
-            ),
-          ),
-          { status: 400 },
-        ),
-      );
-    }
-
-    const phone = normalizeE164(rawPhone);
-    if (!phone) {
-      return cors(
-        Response.json(
-          errorToResponse(
-            createError(
-              ErrorCodes.PHONE_INVALID,
-              "Invalid phone number",
-              "Please provide a valid phone number.",
             ),
           ),
           { status: 400 },
@@ -133,12 +119,9 @@ export async function action({ request }: ActionFunctionArgs) {
     // policy, and would make the drift check meaningless.
     const { admin } = await unauthenticated.admin(shopDomain);
 
-    let orderSnapshot;
-    let orderName: string;
+    let order;
     try {
-      const order = await fetchOrderContext(admin, orderId);
-      orderSnapshot = buildOrderSnapshot(order);
-      orderName = order.orderName;
+      order = await fetchOrderContext(admin, orderId);
     } catch {
       return cors(
         Response.json(
@@ -154,19 +137,60 @@ export async function action({ request }: ActionFunctionArgs) {
       );
     }
 
+    // The token's `sub` is the signed customer GID. A valid token for one
+    // customer must never be enough to open or inspect a case for another
+    // customer's order.
+    if (!order.customerId || order.customerId !== customerId) {
+      return cors(
+        Response.json(
+          errorToResponse(
+            createError(
+              ErrorCodes.ORDER_NOT_FOUND,
+              `Order ${orderId} does not belong to customer ${customerId}`,
+              "We couldn't find that order.",
+            ),
+          ),
+          { status: 404 },
+        ),
+      );
+    }
+
+    const phone = normalizeE164(
+      order.shippingAddress?.phone ?? order.customerPhone ?? "",
+    );
+    if (!phone) {
+      return cors(
+        Response.json(
+          errorToResponse(
+            createError(
+              ErrorCodes.PHONE_INVALID,
+              "The order has no valid phone number",
+              "Add a valid phone number to your account or contact the store for help.",
+            ),
+          ),
+          { status: 400 },
+        ),
+      );
+    }
+
+    const orderSnapshot = buildOrderSnapshot(order);
+    const orderName = order.orderName;
+
     const result = await createSupportCase({
       shopId: settings.id,
       shopDomain: settings.shopDomain,
       shopifyOrderId: orderId,
       shopifyOrderName: orderName,
       shopifyCustomerId: customerId,
-      issueType,
+      issueType: issueType as IssueType,
       customerPhone: phone,
-      customerName: body.customerName,
-      customerEmail: body.customerEmail,
+      customerName: order.shippingAddress?.name ?? order.customerName ?? undefined,
+      customerEmail: order.customerEmail ?? undefined,
       orderSnapshot,
-      ipHash: request.headers.get("X-Forwarded-For") ?? undefined,
-      userAgent: request.headers.get("User-Agent") ?? undefined,
+      ipHash: request.headers.get("X-Forwarded-For")
+        ? hashForMatching(request.headers.get("X-Forwarded-For")!.split(",")[0].trim())
+        : undefined,
+      userAgent: request.headers.get("User-Agent")?.slice(0, 240) ?? undefined,
     });
 
     const callPlan = await buildCallPlan({
@@ -174,7 +198,7 @@ export async function action({ request }: ActionFunctionArgs) {
       shopId: settings.id,
       storeName: settings.storeName,
       agentName: settings.agentName,
-      issueType,
+      issueType: issueType as IssueType,
       customerPhone: phone,
       region: "US",
       locale: settings.defaultLocale,
@@ -233,4 +257,8 @@ function normalizeE164(phone: string): string | null {
   if (cleaned.length === 10) return `+1${cleaned}`;
   if (cleaned.length === 11 && cleaned.startsWith("1")) return `+${cleaned}`;
   return null;
+}
+
+function isIssueType(value: unknown): value is IssueType {
+  return typeof value === "string" && Object.values(IssueTypes).includes(value as IssueType);
 }
