@@ -1,4 +1,5 @@
 import type { OrderSnapshot } from "./types";
+import { localizedCallOpening } from "./regions";
 
 // Context a third-party leg needs that the order snapshot does not carry.
 export type CarrierCallContext = {
@@ -20,20 +21,28 @@ export type StuckOrderContext = {
 // Pure call-plan construction: the task instruction CALL-E speaks from, and the
 // JSON Schema it extracts the structured result into.
 //
-// The static templates below are the fallback. When an LLM provider is configured
-// (DEEPSEEK_API_KEY or OPENAI_API_KEY), the async generate* functions in
-// app/services/llm.server.ts produce richer, order-specific instructions. Both
-// paths output the same schema, so the policy engine is unaffected.
+// These version-controlled templates are the sole v1 task-generation path.
+// CALL-E is the only production AI processor of call content.
 
 export function buildTaskTemplate(params: {
   agentName: string;
   storeName: string;
+  locale?: string;
   issueType: string;
   verificationCode: string;
   orderSnapshot: OrderSnapshot;
   policyInstructions: string;
 }): string {
+  const localized = localizedCallOpening(
+    params.locale ?? "en",
+    params.storeName,
+  );
   return `You are ${params.agentName}, an AI customer-support assistant calling on behalf of ${params.storeName}.
+
+LANGUAGE AND REQUIRED OPENING (script version ${localized.version})
+- Conduct the entire call in ${localized.languageName}.
+- Begin with this reviewed disclosure without changing its meaning:
+  "${localized.opening}"
 
 SECURITY AND DISCLOSURE
 - Open by identifying ${params.storeName} and why you are calling.
@@ -45,7 +54,7 @@ SECURITY AND DISCLOSURE
 - Allow at most two attempts. If neither matches exactly, set identity_status to
   incorrect_code, disclose nothing about the order, and politely end the call.
 - Do not ask for passwords, payment details, or any code other than this
-  CallmeMaybe support code.
+  CallMeMaybe support code.
 
 CASE PURPOSE
 Issue type: ${params.issueType}
@@ -76,6 +85,7 @@ CLOSING
 export function buildCarrierTraceTask(params: {
   agentName: string;
   storeName: string;
+  locale?: string;
   carrierName: string;
   trackingNumber: string;
   shipDate: string;
@@ -84,7 +94,16 @@ export function buildCarrierTraceTask(params: {
   merchantAccountNumber?: string;
   policyInstructions: string;
 }): string {
+  const localized = localizedCallOpening(
+    params.locale ?? "en",
+    params.storeName,
+  );
   return `You are ${params.agentName}, calling ${params.carrierName} on behalf of ${params.storeName}, the shipper of record for this package.
+
+LANGUAGE AND REQUIRED OPENING (script version ${localized.version})
+- Conduct the entire call in ${localized.languageName}.
+- Begin with this reviewed disclosure without changing its meaning:
+  "${localized.opening}"
 
 GOAL
 Open a package trace (a lost-package investigation) for a shipment the carrier
@@ -152,6 +171,7 @@ then return the required structured result.`;
 export function buildStuckOrderOutreachTask(params: {
   agentName: string;
   storeName: string;
+  locale?: string;
   verificationCode: string;
   orderSnapshot: OrderSnapshot;
   orderName: string;
@@ -159,12 +179,21 @@ export function buildStuckOrderOutreachTask(params: {
   emailAttempts: number;
   policyInstructions: string;
 }): string {
+  const localized = localizedCallOpening(
+    params.locale ?? "en",
+    params.storeName,
+  );
   return `You are ${params.agentName}, an AI assistant calling on behalf of ${params.storeName} about an order that cannot ship.
+
+LANGUAGE AND REQUIRED OPENING (script version ${localized.version})
+- Conduct the entire call in ${localized.languageName}.
+- Begin with this reviewed disclosure without changing its meaning:
+  "${localized.opening}"
 
 WHY THIS CALL IS HAPPENING
 Order ${params.orderName} is blocked: ${params.blockerDescription}
 ${params.storeName} has emailed the customer ${params.emailAttempts} time(s) with no reply.
-Without a decision from the customer this order will be cancelled and refunded.
+Without a decision from the customer, the merchant may need to review whether the order can proceed.
 Lead with this. The customer is not expecting the call.
 
 DISCLOSURE
@@ -175,10 +204,13 @@ DISCLOSURE
 
 VERIFICATION
 - Do not disclose order contents, address, or payment details before verification.
-- Ask the person to confirm their name and the order number ${params.orderName}.
-- If the name or order number do not match, tell them they can resolve this from
-  their account page instead, and end the call without disclosing order details.
-- Do NOT ask for codes, passwords, OTPs, or payment details.
+- Ask for the six-digit CallMeMaybe support code shown only in the customer's
+  signed-in account. The expected code is ${params.verificationCode}. Never say,
+  repeat, or hint at the expected code.
+- Allow at most two attempts. If neither matches exactly, set identity_status to
+  incorrect_code, disclose nothing about the order, and end the call politely.
+- Do not ask for passwords, payment details, or any code other than this
+  CallMeMaybe support code.
 
 WHAT TO RESOLVE
 ${params.blockerDescription}
@@ -264,7 +296,13 @@ export function getResultSchema(issueType: string): Record<string, unknown> {
       },
       customer_confirmation: {
         type: "string",
-        enum: ["confirmed", "not_confirmed", "unclear", "not_applicable", "unknown"],
+        enum: [
+          "confirmed",
+          "not_confirmed",
+          "unclear",
+          "not_applicable",
+          "unknown",
+        ],
       },
       needs_human: { type: "string", enum: ["yes", "no", "unknown"] },
       summary: { type: "string" },
@@ -485,7 +523,10 @@ export function validateCallResult(
   if (issueType === "ADDRESS_CHANGE") {
     const reqResult = result.requested_action;
     if (reqResult === "update_address") {
-      if (!result.address_line_1 || (result.address_line_1 as string).length === 0)
+      if (
+        !result.address_line_1 ||
+        (result.address_line_1 as string).length === 0
+      )
         return false;
       if (!result.city || (result.city as string).length === 0) return false;
       if (result.address_confirmed !== "yes") return false;

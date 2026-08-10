@@ -19,7 +19,6 @@ function orderFixture(overrides: Partial<OrderContext> = {}): OrderContext {
     orderName: "#1043",
     customerId: "gid://shopify/Customer/5501",
     customerName: "Alex Johnson",
-    customerEmail: "alex@example.com",
     customerPhone: "+15035550199",
     displayFulfillmentStatus: "UNFULFILLED",
     displayFinancialStatus: "PAID",
@@ -32,7 +31,12 @@ function orderFixture(overrides: Partial<OrderContext> = {}): OrderContext {
       countryCodeV2: "US",
     },
     lineItems: [
-      { id: "li_1", title: "Trail Jacket", quantity: 1, unfulfilledQuantity: 1 },
+      {
+        id: "li_1",
+        title: "Trail Jacket",
+        quantity: 1,
+        unfulfilledQuantity: 1,
+      },
     ],
     totalPriceSet: { shopMoney: { amount: "124.00", currencyCode: "USD" } },
     createdAt: "2026-07-24T10:00:00Z",
@@ -63,8 +67,9 @@ describe("buildOrderSnapshot", () => {
   });
 
   test("is stable across identical orders", () => {
-    const a = buildOrderSnapshot(orderFixture());
-    const b = buildOrderSnapshot(orderFixture());
+    const capturedAt = new Date("2026-07-24T12:00:00Z");
+    const a = buildOrderSnapshot(orderFixture(), capturedAt);
+    const b = buildOrderSnapshot(orderFixture(), capturedAt);
     assert.deepEqual(a, b);
   });
 
@@ -75,7 +80,9 @@ describe("buildOrderSnapshot", () => {
   });
 
   test("null address produces a null hash, not a hash of null", () => {
-    const snapshot = buildOrderSnapshot(orderFixture({ shippingAddress: null }));
+    const snapshot = buildOrderSnapshot(
+      orderFixture({ shippingAddress: null }),
+    );
     assert.equal(snapshot.shippingAddressHash, null);
   });
 });
@@ -139,26 +146,32 @@ describe("compareOrderSnapshots — what must block execution", () => {
 
   test("blocks when the shipping address changes", () => {
     const before = buildOrderSnapshot(orderFixture());
-    const after = buildOrderSnapshot(orderFixture({
-      shippingAddress: {
-        address1: "900 Pine Street",
-        city: "Portland",
-        province: "OR",
-        zip: "97205",
-        countryCodeV2: "US",
-      },
-    }));
+    const after = buildOrderSnapshot(
+      orderFixture({
+        shippingAddress: {
+          address1: "900 Pine Street",
+          city: "Portland",
+          province: "OR",
+          zip: "97205",
+          countryCodeV2: "US",
+        },
+      }),
+    );
 
     const result = compareOrderSnapshots(before, after);
     assert.equal(result.changed, true);
-    assert.ok(result.reasons.some((reason) => reason.includes("Shipping address")));
+    assert.ok(
+      result.reasons.some((reason) => reason.includes("Shipping address")),
+    );
   });
 
   test("blocks when the order total changes", () => {
     const before = buildOrderSnapshot(orderFixture());
-    const after = buildOrderSnapshot(orderFixture({
-      totalPriceSet: { shopMoney: { amount: "129.00", currencyCode: "USD" } },
-    }));
+    const after = buildOrderSnapshot(
+      orderFixture({
+        totalPriceSet: { shopMoney: { amount: "129.00", currencyCode: "USD" } },
+      }),
+    );
 
     const result = compareOrderSnapshots(before, after);
     assert.equal(result.changed, true);

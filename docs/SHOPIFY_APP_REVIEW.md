@@ -1,40 +1,20 @@
-# Shopify App Store self-review
+# Shopify App Store review evidence map
 
-Review date: 2026-08-08. Source: Shopify's live AI self-review requirements,
-checked with the Shopify AI Toolkit against this repository.
+This map is a working aid, not a claim of Shopify approval. It must be refreshed
+against the current requirements immediately before submission.
 
-## Applicable requirements
+| Review area             | Repository evidence                                                                      | Release evidence still required                                          |
+| ----------------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| OAuth and embedded auth | `app/shopify.server.ts`, no manual shop form, production callbacks in `shopify.app.toml` | Branded deployed URLs and clean install/reinstall recording              |
+| Necessary scopes        | `read_orders,write_orders,read_legal_policies`; no `read_customers`                      | Partner explanation and Level 2 field approval                           |
+| Buyer extensions        | Session-token APIs derive shop/customer/order server-side                                | Released 2026-07 extension versions and browser rehearsal                |
+| Consent and privacy     | Consent/suppression services, three privacy topics, encrypted queue                      | Counsel-approved text/DPA/retention and privacy request test evidence    |
+| Calling safety          | Central eligibility, region defaults off, callback authentication                        | CALL-E/counsel approval for all 28 regions and controlled test lines     |
+| Billing                 | Completed-call ledger, cap, retries/reversal, subscription sync                          | Matching App Pricing configuration and accepted test App Events          |
+| Merchant actions        | Explicit approval plus order drift check                                                 | Reviewer demonstration of approval, rejection, and stale-order block     |
+| Reliability             | Health routes, jobs/dead letters, Render blueprint, smoke/rollback docs                  | Live monitors, restore evidence, alerts, on-call contacts                |
+| Listing                 | Listing and media specifications in `submission/`                                        | Dashboard fields, translated listings, signed-release screenshots/videos |
+| Support                 | Public support/security/status routes                                                    | Branded mailboxes/status domain and response rehearsal                   |
 
-| Requirement | Result | Evidence |
-|---|---:|---|
-| 1.1.1 Session-token authentication | Pass | Embedded admin uses Shopify authentication; customer APIs verify customer-account session tokens and scope every lookup. |
-| 1.1.4 Factual information | Pass | No fabricated storefront metrics, reviews, purchases, or sales claims. Fixture data is confined to explicitly labeled demo mode. |
-| 2.2.1 Shopify APIs | Pass | Orders, tracking, policies, notes, cancellation, and address changes use Shopify Admin GraphQL. |
-| 2.2.3 Latest App Bridge | Pass | Current Shopify React Router template and App Bridge web components. |
-| 2.2.4 GraphQL Admin API | Pass | No Admin REST calls. All operations validated against API 2026-07. |
-| 2.3 Installation/authentication | Pass in Shopify CLI flow | OAuth and embedded redirect behavior come from the official Shopify React Router package. |
-| 3.1.1 TLS | Deployment gate | Replace the placeholder production URL with the final HTTPS host before App Store submission. Shopify CLI tunnels satisfy development only. |
-| 3.2 Necessary scopes | Pass | `read_orders,write_orders,read_customers,read_legal_policies`; no `read_all_orders`, payment, product-write, or checkout-chat scope. |
-| 5.6.2/5.6.3 Checkout promotion | Pass | Thank-you extension contains store support guidance only, with no app promotion, ads, reviews, or external link. |
-| 5.6.5 Checkout total consent | Not applicable | The extension cannot modify cart lines, charges, discounts, or totals. |
-| 5.6.6 Countdown timers | Pass | None. |
-| 5.6.7 Chat UI | Not applicable | The app does not request `read_checkout_extensions_chat` or implement checkout chat. |
-| 5.6.9 Payment information | Pass | No payment fields or payment collection. |
-| Mandatory privacy webhooks | Pass | Authenticated data request export, customer redaction, and full shop redaction are configured in `shopify.app.toml`. |
-
-## Pre-App-Store deployment gates
-
-These do not block the hackathon submission, but must be completed before a
-public Shopify App Store review:
-
-1. Deploy to a stable HTTPS origin and replace `application_url` and auth URLs.
-2. Add public privacy-policy, terms, and support URLs to the Shopify listing.
-3. Choose a billing model. If the app is paid, implement Shopify App Pricing or
-   the Billing API; if free, state that clearly.
-4. Provide reviewer credentials/instructions and enable both extensions on the
-   review store.
-5. Trigger each compliance webhook and capture its 200 response plus redaction
-   evidence in a disposable review database.
-
-No category-specific payment, sales-channel, subscription, product-sourcing,
-post-purchase upsell, donation, or mobile-app-builder requirements apply.
+Current external blockers are listed in
+[`submission/EXTERNAL_APPROVALS.md`](../submission/EXTERNAL_APPROVALS.md).

@@ -1,81 +1,59 @@
-# CALL-E integration
+# CALL-E integration contract
 
-How CallmeMaybe talks to CALL-E, and how to verify it works.
+CALL-E is the only production AI processor of call content in v1. The app uses
+the official SDK for placement and canonical reads and sends only the authorized
+recipient number, versioned task template, strict result schema, callback URL,
+locale/region metadata, and non-PII idempotency identifiers.
 
-## Surface used
+## Provider configuration
 
-Official TypeScript server SDK, `@call-e/calle@0.6.0`, imported and called at
-runtime in `app/providers/calle-provider.server.ts`.
+`CALL_PROVIDER` accepts only `fixture` or `calle`. Fixture mode places no call.
+Live mode also requires `CALLE_REAL_CALLS_ENABLED=true`, an API key, public HTTPS
+app URL, and a 32+ character callback route token. Production refuses fixture or
+incomplete modes.
 
-| SDK call | Used for |
-|---|---|
-| `client.calls.create(input, { idempotencyKey })` | Placing the support call |
-| `client.calls.get(callId)` | Canonical call state and terminal result |
-| `client.calls.listEvents(callId, { cursor, limit })` | Call timeline shown in the merchant admin |
+`CALLE_BASE_URL` may be omitted or set to exactly
+`https://api.heycall-e.com`. HTTP, the test origin, other hosts, lookalike
+subdomains, ports, credentials, paths, queries, fragments, casing changes, and
+values requiring normalization are rejected before credentials can be sent.
 
-Contract reference: <https://docs.heycall-e.com/api-reference/calls>
+## Callback acceptance
 
-## Request shape
+Every placement receives a unique random nonce stored only as a hash and bound
+to the call attempt with a 24-hour expiry. The callback URL includes the global
+secret path, attempt ID, and nonce.
 
-```ts
-await client.calls.create(
-  {
-    task: taskText,                     // decrypted at dial time, never logged
-    recipients: [{ phones: [e164], region, locale }],
-    resultSchema,                       // issue-specific, see below
-    metadata: { product: "callmemaybe", case_id, shop_id, ... },
-    webhookUrl,                         // /webhooks/calle/:token
-  },
-  { idempotencyKey: callPlan.idempotencyKey },
-);
-```
+Callback processing:
 
-## Result schema
+1. Authenticate the secret path with constant-time comparison.
+2. Strictly validate the callback DTO and terminal timestamp.
+3. Load the attempt by tenant-independent opaque ID and verify nonce/expiry.
+4. Deduplicate provider event ID and payload hash.
+5. Verify the callback call reference matches the stored provider call.
+6. Refetch the canonical call from CALL-E.
+7. Accept only a terminal canonical result; otherwise reconciliation continues.
 
-`app/lib/call-plan.ts` builds the JSON Schema CALL-E extracts into. Two
-properties of the CALL-E contract drive its design:
+Callback payloads and raw transcripts are never stored. Event history is reduced
+to allowlisted state fields plus a keyed payload hash.
 
-1. **`additionalProperties: false` is enforced strictly.** Any field the voice
-   agent collects that isn't declared is rejected, and the *entire*
-   `structured_result` comes back `null` — not a partial object. So
-   issue-specific fields must be declared up front. `ADDRESS_CHANGE` declares
-   the address fields; `RETURN` declares the item fields.
-2. **`description` steers extraction but does not validate.** Hard validation
-   comes only from `type`, `required`, `enum`, and `additionalProperties`. So
-   descriptions are written as decision rules ("Use yes only when the customer
-   explicitly confirmed the address after it was read back"), while the
-   enums do the enforcing. String enums with an `unknown` member are preferred
-   over booleans everywhere a call might not produce clear evidence.
+## Result and billing contract
 
-## Normalization
+The provider adapter normalizes CALL-E states into `CallStatus`, `CallOutcome`, a
+schema-validated structured result, confidence, completion timestamps, and a
+transient transcript string. The application stores an encrypted structured
+result and redacted summary only.
 
-`normalizeCalleCall()` maps the CALL-E `CallTask` onto the app's provider-
-agnostic `NormalizedCall`. Points worth knowing:
+Only canonical status `COMPLETED`, canonical outcome `COMPLETED`, and a valid
+completion timestamp create a completed-call usage unit. All other terminal and
+nonterminal states create no charge. The local call-attempt ID is the permanent
+usage idempotency source.
 
-- **There is no `outcome` field.** Business outcome is derived from
-  `structured_result.disposition`, which our own result schema asks for, and
-  falls back to lifecycle status when the call produced no result.
-- **Status is five values**, not a granular telephony set: `queued`,
-  `in_progress`, `completed`, `failed`, `canceled`. Ringing/busy/no-answer are
-  not lifecycle states; they surface as disposition or attempt failure codes.
-- **Transcripts are per attempt**, as `transcript_turns` under
-  `recipients[].attempts[]`, not a single string. They're flattened with
-  speaker labels and offsets, keeping retries distinguishable.
-- **`completion_confidence` is an object** `{ score, label }`.
-- **Failures are `failure_code` / `failure_message`**, at both task and attempt
-  level. Attempt-level is more specific and is preferred when the task itself
-  reports nothing.
-- **Events are not embedded** in the call object. They come from a separate
-  cursor-paginated endpoint and carry no sequence number, so a stable sequence
-  is derived from arrival order.
+## Regional production gate
 
-## Webhooks
-
-CALL-E posts terminal events to `POST /webhooks/calle/:token`:
-
-```json
-{ "id": "evt_...", "type": "call.completed", "created_at": "...", "data": { /* CallTask */ } }
-```
+Provider connectivity or testing coverage is not production authorization. Each
+of the 28 release regions remains disabled until written CALL-E production
+routing, caller-ID/KYC, line, DPA/retention, capacity/support, and counsel evidence
+is attached to the versioned regional policy.
 
 **Deliveries are unsigned.** The SDK's `client.webhooks.verify()` is marked
 deprecated upstream precisely because current deliveries carry no signature
@@ -120,5 +98,7 @@ CALL_PROVIDER=calle
 CALLE_REAL_CALLS_ENABLED=true
 ```
 
-With `CALL_PROVIDER=fake` or `CALLE_REAL_CALLS_ENABLED` unset, the app uses the
-fixture provider in `app/providers/fake-calle.server.ts` and places no calls.
+With `CALL_PROVIDER=fixture` and `CALLE_REAL_CALLS_ENABLED=false`, the app uses
+the fixture provider and places no calls. Invalid or ambiguous gate values stop
+provider initialization. Real test calls require an explicit option and a
+number controlled by the operator.

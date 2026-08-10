@@ -1,0 +1,79 @@
+databases:
+  - name: callmemaybe-hackathon-db
+    databaseName: callmemaybe
+    user: callmemaybe
+    plan: basic-256mb
+    postgresMajorVersion: "16"
+    storageAutoscalingEnabled: true
+
+services:
+  - type: web
+    # The service name intentionally matches the desired onrender.com subdomain.
+    name: callmemaybe-hackathon
+    runtime: docker
+    plan: starter
+    branch: main
+    autoDeployTrigger: checksPass
+    dockerfilePath: ./Dockerfile
+    healthCheckPath: /health/ready
+    preDeployCommand: npm run setup
+    envVars: &productionEnv
+      - key: NODE_ENV
+        value: production
+      - key: RELEASE_TARGET
+        value: hackathon
+      - key: DATABASE_URL
+        # Production requires TLS. During initial Blueprint creation, provide
+        # the database's external URL, including sslmode=require. The isolated
+        # hackathon database contains synthetic demo data only.
+        sync: false
+      - key: CALL_PROVIDER
+        value: calle
+      - key: CALLE_REAL_CALLS_ENABLED
+        value: "true"
+      - key: CALLE_BASE_URL
+        value: https://api.heycall-e.com
+      - key: SHOPIFY_APP_URL
+        value: https://callmemaybe-hackathon.onrender.com
+      - key: SCOPES
+        value: read_orders,write_orders,read_legal_policies
+      - key: SHOPIFY_API_KEY
+        sync: false
+      - key: SHOPIFY_API_SECRET
+        sync: false
+      - key: CALLE_API_KEY
+        sync: false
+      - key: CALLE_WEBHOOK_TOKEN
+        sync: false
+      - key: APP_ENCRYPTION_KEY
+        sync: false
+      - key: APP_ENCRYPTION_KEY_VERSION
+        value: "1"
+      - key: APP_PREVIOUS_ENCRYPTION_KEYS_JSON
+        value: "{}"
+      - key: HASH_PEPPER
+        sync: false
+      - key: DEMO_SHOP_DOMAIN
+        sync: false
+      - key: DEMO_CARRIER_PHONE
+        sync: false
+      - key: TEST_CUSTOMER_PHONE
+        sync: false
+      - key: DEMO_SEED
+        value: "false"
+      - key: DEMO_MODE_ENABLED
+        value: "false"
+      - key: BILLING_BYPASS_DEVELOPMENT
+        value: "false"
+      - key: ENABLE_DYNAMIC_LLM_TASKS
+        value: "false"
+
+  - type: worker
+    name: callmemaybe-hackathon-worker
+    runtime: docker
+    plan: starter
+    branch: main
+    autoDeployTrigger: checksPass
+    dockerfilePath: ./Dockerfile
+    dockerCommand: npm run worker
+    envVars: *productionEnv

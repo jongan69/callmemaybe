@@ -1,34 +1,33 @@
 import "@shopify/ui-extensions/preact";
 import { render } from "preact";
-import { useEffect, useRef, useState } from "preact/hooks";
-import { useSessionToken, useOrder } from "@shopify/ui-extensions/preact";
+import { useCallback, useEffect, useRef, useState } from "preact/hooks";
 
-const API_BASE = "";
-
+/** @type {Array<[string, string]>} */
 const ISSUE_OPTIONS = [
-  { value: "ORDER_STATUS", label: "Track my order" },
-  { value: "ADDRESS_CHANGE", label: "Change address" },
-  { value: "CANCELLATION", label: "Cancel order" },
-  { value: "RETURN", label: "Return item" },
-  { value: "DAMAGED_ITEM", label: "Damaged item" },
-  { value: "WRONG_ITEM", label: "Wrong item" },
-  { value: "MISSING_ITEM", label: "Missing item" },
-  { value: "PRODUCT_HELP", label: "Product help" },
-  { value: "OTHER", label: "Something else" },
+  ["ORDER_STATUS", "issueOrderStatus"],
+  ["ADDRESS_CHANGE", "issueAddressChange"],
+  ["CANCELLATION", "issueCancellation"],
+  ["RETURN", "issueReturn"],
+  ["DAMAGED_ITEM", "issueDamaged"],
+  ["WRONG_ITEM", "issueWrong"],
+  ["MISSING_ITEM", "issueMissing"],
+  ["PRODUCT_HELP", "issueProduct"],
+  ["OTHER", "issueOther"],
 ];
 
-const CONSENT_TEXT =
-  "I am requesting an automated AI support call about this order. I understand the call may be transcribed or recorded as described by the store.";
-
-export default async () => {
+export default async function extension() {
   render(<FullPageSupport />, document.body);
-};
+}
 
 function FullPageSupport() {
-  const token = useSessionToken();
-  const order = useOrder();
-
-  const [step, setStep] = useState("request"); // request | preparing | active | result
+  const orderId = shopify.orderId;
+  /**
+   * @param {string} key
+   * @param {Record<string, string | number>} [values]
+   */
+  const t = (key, values = {}) => shopify.i18n.translate(key, values);
+  const locale = shopify.localization.extensionLanguage.value.isoCode;
+  const [step, setStep] = useState("request");
   const [issueType, setIssueType] = useState("");
   const [consented, setConsented] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -38,280 +37,350 @@ function FullPageSupport() {
   const [codeExpiresAt, setCodeExpiresAt] = useState("");
   const [maskedPhone, setMaskedPhone] = useState("");
   const [caseStatus, setCaseStatus] = useState("");
-  const pollTimerRef = useRef(null);
+  const [consentCopy, setConsentCopy] = useState("");
+  const pollTimerRef = useRef(
+    /** @type {ReturnType<typeof setInterval> | null} */ (null),
+  );
 
-  const stopPolling = () => {
+  /**
+   * @param {string} path
+   * @param {RequestInit} [init]
+   */
+  const authenticatedFetch = useCallback(async (path, init) => {
+    const token = await shopify.sessionToken.get();
+    const headers = new Headers(init?.headers);
+    headers.set("Authorization", `Bearer ${token}`);
+    return fetch(path, {
+      ...init,
+      headers,
+    });
+  }, []);
+
+  /** @returns {void} */
+  const stopPolling = useCallback(() => {
     if (pollTimerRef.current) {
       clearInterval(pollTimerRef.current);
       pollTimerRef.current = null;
     }
-  };
-
-  useEffect(() => () => {
-    if (pollTimerRef.current) clearInterval(pollTimerRef.current);
   }, []);
 
-  const requestSupport = async () => {
-    if (!issueType) {
-      setError("Please select what you need help with.");
-      return;
-    }
-    if (!consented) {
-      setError("Please consent to receive an AI support call.");
-      return;
-    }
+  /**
+   * @param {string} reference
+   * @returns {void}
+   */
+  const startPolling = useCallback(
+    (reference) => {
+      stopPolling();
+      pollTimerRef.current = setInterval(async () => {
+        try {
+          const response = await authenticatedFetch(
+            `/api/customer-support/cases/${encodeURIComponent(reference)}`,
+            {},
+          );
+          if (!response.ok) return;
+          const body = await response.json();
+          if (!body.case) return;
+          setCaseStatus(body.case.status);
+          if (body.case.verificationCode) {
+            setVerificationCode(body.case.verificationCode);
+            setCodeExpiresAt(body.case.codeExpiresAt);
+          }
+          if (
+            [
+              "RESOLVED",
+              "AWAITING_APPROVAL",
+              "NEEDS_HUMAN",
+              "FAILED",
+              "CALL_NOT_COMPLETED",
+              "CANCELED",
+            ].includes(body.case.status)
+          ) {
+            setStep("result");
+            stopPolling();
+          } else if (
+            ["CALLING", "PROCESSING_RESULT"].includes(body.case.status)
+          ) {
+            setStep("active");
+          }
+        } catch {
+          // A later poll reconciles transient network failures.
+        }
+      }, 3000);
+    },
+    [authenticatedFetch, stopPolling],
+  );
 
+  useEffect(() => {
+    if (!orderId) return undefined;
+    let active = true;
+    const loadExistingState = async () => {
+      try {
+        const consentResponse = await authenticatedFetch(
+          `/api/customer-support/consent?orderId=${encodeURIComponent(orderId)}&locale=${encodeURIComponent(locale)}`,
+          {},
+        );
+        if (!consentResponse.ok) throw new Error("Consent terms unavailable");
+        const body = await consentResponse.json();
+        if (!body.text) throw new Error("Consent terms unavailable");
+        if (active) {
+          setConsented(body.consent?.active === true);
+          setConsentCopy(body.text);
+        }
+      } catch {
+        if (active) setError(shopify.i18n.translate("errorGeneric", {}));
+      }
+      try {
+        const caseResponse = await authenticatedFetch(
+          `/api/customer-support/cases/latest?orderId=${encodeURIComponent(orderId)}`,
+          {},
+        );
+        const body = await caseResponse.json();
+        if (!active || !body.case) return;
+        setCaseRef(body.case.reference);
+        setCaseStatus(body.case.status);
+        if (body.case.verificationCode) {
+          setVerificationCode(body.case.verificationCode);
+          setCodeExpiresAt(body.case.codeExpiresAt);
+          setStep("preparing");
+        } else if (
+          ["CALLING", "PROCESSING_RESULT"].includes(body.case.status)
+        ) {
+          setStep("active");
+        } else if (
+          [
+            "RESOLVED",
+            "AWAITING_APPROVAL",
+            "NEEDS_HUMAN",
+            "FAILED",
+            "CALL_NOT_COMPLETED",
+            "CANCELED",
+          ].includes(body.case.status)
+        ) {
+          setStep("result");
+        }
+        startPolling(body.case.reference);
+      } catch {
+        // The buyer can still submit a new support request.
+      }
+    };
+    void loadExistingState();
+    return () => {
+      active = false;
+      stopPolling();
+    };
+  }, [authenticatedFetch, locale, orderId, startPolling, stopPolling]);
+
+  const requestSupport = async () => {
+    if (!issueType || !consented) {
+      setError(t(!issueType ? "errorIssue" : "errorConsent"));
+      return;
+    }
     setLoading(true);
     setError("");
-
     try {
-      const res = await fetch(`${API_BASE}/api/customer-support/request`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+      const response = await authenticatedFetch(
+        "/api/customer-support/request",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            orderId,
+            issueType,
+            locale,
+          }),
         },
-        body: JSON.stringify({
-          orderId: order.id,
-          orderName: order.name || `#${order.number}`,
-          issueType,
-          consentGiven: true,
-        }),
-      });
-
-      const data = await res.json();
-
-      if (res.ok && data.caseReference) {
-        setCaseRef(data.caseReference);
-        setVerificationCode(data.verificationCode);
-        setCodeExpiresAt(data.codeExpiresAt);
-        setMaskedPhone(data.maskedPhone);
-        setStep("preparing");
-        startPolling(data.caseReference);
-      } else {
+      );
+      const body = await response.json();
+      if (!response.ok || !body.caseReference) {
         setError(
-          data.error?.userMessage ||
-          data.error?.message ||
-          "Unable to create support case. Please try again.",
+          body.error?.userMessage || body.error?.message || t("errorGeneric"),
         );
+        return;
       }
+      setCaseRef(body.caseReference);
+      setVerificationCode(body.verificationCode);
+      setCodeExpiresAt(body.codeExpiresAt);
+      setMaskedPhone(body.maskedPhone);
+      setStep("preparing");
+      startPolling(body.caseReference);
     } catch {
-      setError("Network error. Please check your connection and try again.");
+      setError(t("errorNetwork"));
     } finally {
       setLoading(false);
     }
   };
 
-  const startPolling = (reference) => {
-    stopPolling();
-    pollTimerRef.current = setInterval(async () => {
-      try {
-        const res = await fetch(
-          `${API_BASE}/api/customer-support/cases/${reference}`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-        if (res.ok) {
-          const data = await res.json();
-          if (data.case) {
-            setCaseStatus(data.case.status);
-            if (
-              data.case.status === "RESOLVED" ||
-              data.case.status === "AWAITING_APPROVAL" ||
-              data.case.status === "NEEDS_HUMAN" ||
-              data.case.status === "FAILED" ||
-              data.case.status === "CALL_NOT_COMPLETED" ||
-              data.case.status === "CANCELED"
-            ) {
-              setStep("result");
-              stopPolling();
-            } else if (data.case.callStatus === "CALLING") {
-              setStep("active");
-            }
-          }
-        }
-      } catch {
-        // Polling errors are not user-facing
-      }
-    }, 3000);
-  };
-
-  const resetForm = () => {
-    stopPolling();
-    setStep("request");
-    setIssueType("");
-    setConsented(false);
+  const revokeConsent = async () => {
+    setLoading(true);
     setError("");
-    setCaseRef("");
-    setVerificationCode("");
-    setCodeExpiresAt("");
-    setMaskedPhone("");
-    setCaseStatus("");
+    try {
+      const response = await authenticatedFetch(
+        "/api/customer-support/consent",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderId, intent: "revoke", locale }),
+        },
+      );
+      if (!response.ok) throw new Error("revoke failed");
+      setConsented(false);
+      shopify.toast.show(t("consentRevoked"));
+    } catch {
+      setError(t("errorGeneric"));
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // ─── Request Screen ──────────────────────────────────────────
+  /** @param {boolean} nextValue */
+  const updateConsent = async (nextValue) => {
+    if (!consentCopy) {
+      setError(t("errorGeneric"));
+      return;
+    }
+    if (!nextValue) {
+      await revokeConsent();
+      return;
+    }
+    setLoading(true);
+    setError("");
+    try {
+      const response = await authenticatedFetch(
+        "/api/customer-support/consent",
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ orderId, intent: "grant", locale }),
+        },
+      );
+      if (!response.ok) throw new Error("grant failed");
+      setConsented(true);
+      shopify.toast.show(t("consentSaved"));
+    } catch {
+      setConsented(false);
+      setError(t("errorGeneric"));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  if (!orderId) {
+    return (
+      <s-customer-account-action heading={t("heading")}>
+        <s-spinner size="base" />
+      </s-customer-account-action>
+    );
+  }
 
   if (step === "request") {
     return (
-      <s-page heading="Get Support">
-        <s-section heading={`Order ${order?.name || `#${order?.number}`}`}>
-          <s-text>
-            Request an AI phone call to help with your order. The agent already
-            knows your order details and will verify your identity before
-            discussing anything.
-          </s-text>
+      <s-customer-account-action heading={t("heading")}>
+        <s-section heading={t("aboutHeading")}>
+          <s-text>{t("intro")}</s-text>
         </s-section>
-
-        <s-section heading="What do you need help with?">
+        <s-section heading={t("issueHeading")}>
           <s-stack direction="block" gap="base">
-            {ISSUE_OPTIONS.map((opt) => (
-              <s-box
-                key={opt.value}
-                padding="base"
-                borderWidth="base"
-                borderRadius="base"
-                background={issueType === opt.value ? "subdued" : undefined}
-                onClick={() => setIssueType(opt.value)}
+            {ISSUE_OPTIONS.map(([value, key]) => (
+              <s-button
+                key={value}
+                variant={issueType === value ? "primary" : "secondary"}
+                onClick={() => setIssueType(value)}
               >
-                <s-text>{opt.label}</s-text>
-              </s-box>
+                {t(key)}
+              </s-button>
             ))}
           </s-stack>
         </s-section>
-
-        <s-section heading="Consent">
-          <s-stack direction="inline" gap="base">
-            <input
-              type="checkbox"
-              id="consent"
-              checked={consented}
-              onChange={(e) => setConsented(e.currentTarget.checked)}
-            />
-            <label htmlFor="consent">
-              <s-text>{CONSENT_TEXT}</s-text>
-            </label>
-          </s-stack>
+        <s-section heading={t("consentHeading")}>
+          <s-checkbox
+            checked={consented}
+            disabled={loading || !consentCopy}
+            label={consentCopy || t("consentText")}
+            onChange={() => void updateConsent(!consented)}
+          />
+          {consented && (
+            <s-button
+              variant="secondary"
+              onClick={revokeConsent}
+              disabled={loading}
+            >
+              {t("revokeConsent")}
+            </s-button>
+          )}
         </s-section>
-
         {error && (
           <s-banner tone="critical">
             <s-text>{error}</s-text>
           </s-banner>
         )}
-
-        <s-stack direction="inline" gap="base">
-          <button
-            type="button"
-            onClick={requestSupport}
-            disabled={loading || !issueType || !consented}
-          >
-            {loading ? "Preparing..." : "Call me"}
-          </button>
-        </s-stack>
-
-        <s-section heading="Important">
-          <s-text>
-            This is an AI-operated support call. Refunds and cancellations may
-            require store approval.
-          </s-text>
-        </s-section>
-      </s-page>
+        <s-button
+          slot="primary-action"
+          onClick={requestSupport}
+          disabled={loading || !issueType || !consented || !consentCopy}
+        >
+          {loading ? t("preparing") : t("callMe")}
+        </s-button>
+        <s-button slot="secondary-actions" onClick={() => shopify.close()}>
+          {t("close")}
+        </s-button>
+      </s-customer-account-action>
     );
   }
-
-  // ─── Preparing Screen ─────────────────────────────────────────
 
   if (step === "preparing") {
     return (
-      <s-page heading="Your Support Call">
-        <s-section heading="Call being prepared">
-          <s-banner tone="success">
-            <s-text>
-              Your support call is being prepared. You will receive a call
-              shortly at {maskedPhone}.
-            </s-text>
-          </s-banner>
+      <s-customer-account-action heading={t("callHeading")}>
+        <s-banner tone="success">
+          <s-text>{t("callPrepared", { phone: maskedPhone })}</s-text>
+        </s-banner>
+        <s-section heading={t("verificationHeading")}>
+          <s-heading>{verificationCode}</s-heading>
+          <s-text>{t("verificationHelp")}</s-text>
+          <s-text>
+            {t("expires", {
+              time: new Date(codeExpiresAt).toLocaleTimeString(locale),
+            })}
+          </s-text>
         </s-section>
-
-        <s-section heading="Verification code">
-          <s-box padding="base" borderWidth="base" borderRadius="base" background="subdued">
-            <s-text>
-              When the AI agent calls, give them this code:
-            </s-text>
-            <s-heading>{verificationCode}</s-heading>
-            <s-text>
-              Code expires at{" "}
-              {new Date(codeExpiresAt).toLocaleTimeString()}
-            </s-text>
-            <s-text>
-              Never share this code with anyone who calls you unexpectedly.
-            </s-text>
-          </s-box>
-        </s-section>
-
-        <s-section heading="Case reference">
+        <s-section heading={t("caseReference")}>
           <s-text>{caseRef}</s-text>
         </s-section>
-
-        <s-stack direction="inline" gap="base">
-          <button type="button" onClick={resetForm}>
-            Cancel request
-          </button>
-        </s-stack>
-      </s-page>
+        <s-button slot="secondary-actions" onClick={() => shopify.close()}>
+          {t("close")}
+        </s-button>
+      </s-customer-account-action>
     );
   }
-
-  // ─── Active Screen ────────────────────────────────────────────
 
   if (step === "active") {
     return (
-      <s-page heading="Call in Progress">
-        <s-section heading="Your support call is active">
-          <s-banner tone="info">
-            <s-text>
-              The AI agent is currently on the phone. Please stay on the line.
-            </s-text>
-          </s-banner>
-        </s-section>
-        <s-section heading="Case reference">
+      <s-customer-account-action heading={t("callHeading")}>
+        <s-banner tone="info">
+          <s-text>{t("callActive")}</s-text>
+        </s-banner>
+        <s-section heading={t("caseReference")}>
           <s-text>{caseRef}</s-text>
         </s-section>
-      </s-page>
+        <s-button slot="secondary-actions" onClick={() => shopify.close()}>
+          {t("close")}
+        </s-button>
+      </s-customer-account-action>
     );
   }
 
-  // ─── Result Screen ────────────────────────────────────────────
-
-  const resultLabels = {
-    RESOLVED: { tone: "success", text: "Your support request has been resolved." },
-    AWAITING_APPROVAL: { tone: "info", text: "Your request is awaiting store approval." },
-    NEEDS_HUMAN: { tone: "warning", text: "Your case has been escalated for human review." },
-    CALL_NOT_COMPLETED: { tone: "warning", text: "The call could not be completed. You can request another." },
-    FAILED: { tone: "critical", text: "There was an issue. Please try again." },
-  };
-
-  const result = resultLabels[caseStatus] || {
-    tone: "info",
-    text: `Case status: ${caseStatus}`,
-  };
-
   return (
-    <s-page heading="Support Result">
-      <s-section heading="Status">
-        <s-banner tone={result.tone}>
-          <s-text>{result.text}</s-text>
-        </s-banner>
-      </s-section>
-      <s-section heading="Case reference">
+    <s-customer-account-action heading={t("resultHeading")}>
+      <s-banner tone={caseStatus === "RESOLVED" ? "success" : "info"}>
+        <s-text>
+          {t(caseStatus === "RESOLVED" ? "statusResolved" : "statusReview")}
+        </s-text>
+      </s-banner>
+      <s-section heading={t("caseReference")}>
         <s-text>{caseRef}</s-text>
       </s-section>
-      {(caseStatus === "CALL_NOT_COMPLETED" || caseStatus === "FAILED") && (
-        <s-stack direction="inline" gap="base">
-          <button type="button" onClick={resetForm}>
-            Request another call
-          </button>
-        </s-stack>
-      )}
-    </s-page>
+      <s-button slot="primary-action" onClick={() => shopify.close()}>
+        {t("close")}
+      </s-button>
+    </s-customer-account-action>
   );
 }

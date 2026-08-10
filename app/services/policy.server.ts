@@ -45,7 +45,9 @@ export async function getPolicyForIssue(
     where: { shopId_issueType: { shopId, issueType } },
   });
   if (stored) {
-    const conditions = JSON.parse(stored.conditionsJson) as Partial<SupportPolicy>;
+    const conditions = JSON.parse(
+      stored.conditionsJson,
+    ) as Partial<SupportPolicy>;
     return {
       ...conditions,
       issueType: stored.issueType as IssueType,
@@ -150,7 +152,9 @@ export function evaluatePolicy(
 
   checks.push("disposition_valid");
   if (callResult.disposition !== "completed") {
-    reasons.push(`Call disposition is ${callResult.disposition}, not completed`);
+    reasons.push(
+      `Call disposition is ${callResult.disposition}, not completed`,
+    );
     return {
       eligible: false,
       mode: "DISABLED",
@@ -225,7 +229,10 @@ export function evaluatePolicy(
   }
 
   // Check order-specific conditions
-  if (policy.requireUnfulfilled && orderSnapshot.fulfillmentStatus !== "UNFULFILLED") {
+  if (
+    policy.requireUnfulfilled &&
+    orderSnapshot.fulfillmentStatus !== "UNFULFILLED"
+  ) {
     reasons.push("Order is not unfulfilled");
     return {
       eligible: false,
@@ -255,16 +262,17 @@ export function evaluatePolicy(
     };
   }
 
-  const isNonMutating = actionType === "EXPLAIN_STATUS" || actionType === "ESCALATE";
-  const effectiveMode = policy.mode === "AUTOMATIC" && !isNonMutating
-    ? "APPROVAL"
-    : policy.mode;
+  const isNonMutating =
+    actionType === "EXPLAIN_STATUS" || actionType === "ESCALATE";
+  const effectiveMode =
+    policy.mode === "AUTOMATIC" && !isNonMutating ? "APPROVAL" : policy.mode;
 
   return {
     eligible: true,
     mode: effectiveMode,
     riskLevel,
-    reasonCodes: effectiveMode !== policy.mode ? ["HUMAN_APPROVAL_REQUIRED"] : [],
+    reasonCodes:
+      effectiveMode !== policy.mode ? ["HUMAN_APPROVAL_REQUIRED"] : [],
     humanReadableReasons: [
       effectiveMode !== policy.mode
         ? "Policy passed; Shopify mutations require merchant approval"

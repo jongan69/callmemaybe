@@ -1,48 +1,48 @@
 # Implementation status
 
-Updated 2026-08-08.
+Updated 2026-08-09. This document separates repository implementation from
+external release evidence.
 
-## Complete
+## Implemented in the repository
 
-- React Router 7 Shopify embedded app using App Bridge/Polaris web components
-- Shopify Admin GraphQL pinned to 2026-07 and validated with the Shopify AI
-  Toolkit
-- Live recent-order/tracking outreach, merchant case queue, approvals,
-  automations, settings, policy sync, privacy exports, and audit timeline
-- Customer-account order action, support form, one-time code, and case status
-- Thank-you support guidance extension
-- CALL-E provider using the official SDK plus a no-network fixture provider
-- Carrier trace and customer callback/outreach task families with strict result
-  schemas
-- Canonical CALL-E result re-fetch, webhook deduplication, call and mutation
-  idempotency
-- Deterministic policy evaluation, mandatory approval for Shopify mutations, and
-  full order drift detection immediately before write
-- Address update, cancellation with async job confirmation, and order-note
-  mutations
-- Authenticated shop/customer scoping and live order ownership checks
-- AES-256-GCM encryption, display transcript redaction, configurable retention,
-  production secret enforcement, and mandatory Shopify privacy webhooks
-- Branded public landing page, SVG/PNG logo assets, and 1200×630 project cover
-- 57 tests, typecheck, lint, production build, migration-from-zero path, CI, and
-  security/contribution/release documentation
+- PostgreSQL-only Prisma baseline and PostgreSQL-backed pg-boss jobs.
+- Isolated web, worker, cron, and managed database Render blueprint.
+- Canonical fail-closed provider configuration and official CALL-E origin
+  allowlist.
+- Authenticated, nonce-bound, replay-resistant callbacks with canonical refetch.
+- Independent consent records, revocation, suppression, attempt spacing, and
+  authenticated buyer-extension APIs.
+- Strict buyer-request and queue payload schemas, with shop identity resolved
+  server-side for every protected route and resolution job.
+- Single-use customer-account verification challenge for customer calls.
+- Central call eligibility decisions and global/shop/region controls.
+- Disabled-by-default registry for 28 target regions, 12 buyer-extension locale
+  bundles, and draft consent/call-script copy for all 12 target languages.
+- Versioned field encryption, keyed hashes, minimized results, no stored audio
+  or raw transcripts, privacy queue, retention sweep, and audit events.
+- Active subscription synchronization, completed-call ledger, usage reporting,
+  retries/reversals, trial/included classification, and the 2,250-call ceiling.
+- Merchant approval, fresh Shopify order snapshot, drift rejection, and
+  idempotent resolution execution.
+- Liveness/readiness routes, redacted JSON logging, Sentry initialization,
+  Better Stack heartbeat, containerized deployment, and release runbooks.
+- App icon and feature-image assets at required dimensions.
 
-## Deliberate limitations
+## Blocked outside the repository
 
-- No scheduled call retries after no-answer; retry state is modeled but not
-  scheduled.
-- Recent orders are live, but exception classification is initiated by a
-  merchant rather than an automatic carrier-event ingestion job.
-- SQLite targets a single judgeable instance. Horizontal production deployment
-  should use managed SQL and scheduled retention cleanup.
-- The carrier demo uses an explicitly disclosed stand-in line. Real-world
-  carrier cooperation requires permission and pilot validation.
+- Trademark clearance and counsel-approved privacy/terms/DPA/calling package.
+- Level 2 protected customer data and requested-field approval.
+- Written CALL-E production authorization, KYC/caller ID, retention, DPA, and
+  support evidence for every one of the 28 regions.
+- Complete merchant-admin/help-center localization plus professional human
+  translation, legal review, call-script review, and back-translation for every
+  required locale.
+- Branded domain/DNS, Render services/secrets, production Shopify configuration,
+  App Pricing event handle, monitoring accounts, and tested backup restoration.
+- Final six screenshots, marketing video, reviewer screencast, reviewer store,
+  controlled test numbers, and credentials captured from the signed release.
+- Independent reviewer rehearsal and engineering/legal/vendor/localization/
+  operations sign-off.
 
-## External release steps
-
-- Configure production hosting/HTTPS and replace placeholder Shopify URLs.
-- Complete one real CALL-E rehearsal on controlled numbers.
-- Enable both extensions on the development/review store.
-- Record and publish the three-minute demo.
-- Insert the public video URL and submitter truth fields in Devpost.
-- Deploy the Shopify app configuration after the production URL exists.
+The authoritative gate is
+[`submission/RELEASE_READINESS.md`](../submission/RELEASE_READINESS.md).

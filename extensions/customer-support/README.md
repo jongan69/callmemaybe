@@ -1,4 +1,4 @@
-# CallmeMaybe customer-account extension
+# CallMeMaybe customer-account extension
 
 This extension adds three surfaces to Shopify customer accounts:
 

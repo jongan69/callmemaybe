@@ -3,10 +3,11 @@ import prisma from "../db.server";
 import {
   createSupportCase,
   buildCallPlan,
-  submitCall,
 } from "../services/support-case.server";
 import type { OrderSnapshot } from "../lib/types";
 import { sha256Hash } from "../lib/crypto.server";
+import { grantCallConsent, normalizePhone } from "../services/consent.server";
+import { enqueueJob, JOBS } from "../queue.server";
 
 const snapshot: OrderSnapshot = {
   orderId: "gid://shopify/Order/demo-1043",
@@ -32,13 +33,17 @@ function html(page: string) {
 }
 
 function escapeHtml(value: string): string {
-  return value.replace(/[&<>'"]/g, (character) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    "'": "&#39;",
-    '"': "&quot;",
-  })[character] ?? character);
+  return value.replace(
+    /[&<>'"]/g,
+    (character) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        "'": "&#39;",
+        '"': "&quot;",
+      })[character] ?? character,
+  );
 }
 
 const CSS = `
@@ -85,7 +90,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const safeDemoToken = escapeHtml(demoToken);
 
   const existing = await prisma.supportCase.findFirst({
-    where: { shopifyOrderId: snapshot.orderId, status: { notIn: ["RESOLVED", "CANCELED"] } },
+    where: {
+      shopifyOrderId: snapshot.orderId,
+      status: { notIn: ["RESOLVED", "CANCELED"] },
+    },
     orderBy: { createdAt: "desc" },
   });
 
@@ -103,22 +111,26 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
     statusBlock = `<div class="result result-error">${escapeHtml(error)}</div>`;
   }
 
-  const form = statusBlock || existing
-    ? ""
-    : `<form method="post"><input name="demoToken" type="hidden" value="${safeDemoToken}"><input name="phone" type="tel" placeholder="Your phone number (+1...)" required><label class="consent"><input name="consent" type="checkbox" value="yes" required><span>I agree to receive this AI-assisted support call. The call may be transcribed, and my number is used only to complete this request.</span></label><button type="submit" class="btn btn-primary">📞 Get phone support</button></form>`;
+  const form =
+    statusBlock || existing
+      ? ""
+      : `<form method="post"><input name="demoToken" type="hidden" value="${safeDemoToken}"><input name="phone" type="tel" placeholder="Authorized demo number in E.164 format" required><label class="consent"><input name="consent" type="checkbox" value="yes" required><span>I ask ${storeName} to call me with an AI support assistant about this order. This consent allows up to two attempts within seven days, at least 24 hours apart. The call is processed by an AI service and may be transcribed temporarily to provide support. I can revoke consent at any time.</span></label><button type="submit" class="btn btn-primary">Get phone support</button></form>`;
 
   return html(`<!DOCTYPE html>
 <html><head><title>Order #1043 — ${storeName}</title><meta name="viewport" content="width=device-width,initial-scale=1"><style>${CSS}</style></head>
 <body><div class="container">
 <div class="card"><p style="color:#6d7175;font-size:14px">${storeName}</p><h1>Order #1043</h1><p style="color:#6d7175">Placed July 28, 2026 · $124.00</p></div>
-<div class="card"><h2>Items</h2><div class="row"><span>TrailBlazer Pro 4-Person Tent × 1</span><span style="font-weight:600">$349.00</span></div></div>
+<div class="card"><h2>Items</h2><div class="row"><span>TrailBlazer Pro 4-Person Tent × 1</span><span style="font-weight:600">$124.00</span></div></div>
 <div class="card"><h2>Shipping</h2><p>Alex Johnson, 118 Cedar Street, Portland OR 97214</p><p style="color:#6d7175;font-size:14px;margin-top:4px">Northline Freight · Tracking NL4820199317</p><span class="badge badge-amber" style="margin-top:8px">Carrier reports delivered July 28, 2026</span></div>
 <div class="card"><h2>Problem with this order?</h2><p style="color:#6d7175;margin-bottom:12px">The carrier says delivered but you didn't get it? An AI assistant can call you back in under a minute — no hold music, no waiting.</p>${statusBlock}${form}</div>
 </div></body></html>`);
 };
 
 export const action = async ({ request }: ActionFunctionArgs) => {
-  if (process.env.DEMO_MODE_ENABLED !== "true" || !process.env.DEMO_ACCESS_TOKEN) {
+  if (
+    process.env.DEMO_MODE_ENABLED !== "true" ||
+    !process.env.DEMO_ACCESS_TOKEN
+  ) {
     throw new Response("Not found", { status: 404 });
   }
 
@@ -132,36 +144,76 @@ export const action = async ({ request }: ActionFunctionArgs) => {
     where: { shopDomain: DEMO_SHOP_DOMAIN },
   });
   if (!settings) {
-    return new Response(null, { status: 302, headers: { Location: `/demo/customer?token=${encodeURIComponent(demoToken)}&error=Store+not+configured` } });
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: `/demo/customer?token=${encodeURIComponent(demoToken)}&error=Store+not+configured`,
+      },
+    });
   }
 
   const phone = String(formData.get("phone") ?? "").trim();
   const consented = formData.get("consent") === "yes";
 
   if (!consented) {
-    return new Response(null, { status: 302, headers: { Location: `/demo/customer?token=${encodeURIComponent(demoToken)}&error=Consent+is+required` } });
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: `/demo/customer?token=${encodeURIComponent(demoToken)}&error=Consent+is+required`,
+      },
+    });
   }
-  if (!phone || !phone.startsWith("+")) {
-    return new Response(null, { status: 302, headers: { Location: `/demo/customer?token=${encodeURIComponent(demoToken)}&error=Enter+your+phone+number+in+international+format` } });
+  const normalized = normalizePhone(phone);
+  if (!normalized) {
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: `/demo/customer?token=${encodeURIComponent(demoToken)}&error=Enter+your+phone+number+in+international+format`,
+      },
+    });
   }
 
   try {
-    const supportCase = await createSupportCase({
-      shopId: settings.id, shopDomain: settings.shopDomain,
-      shopifyOrderId: snapshot.orderId, shopifyOrderName: "#1043",
+    const consent = await grantCallConsent({
+      shopId: settings.id,
+      shopifyOrderId: snapshot.orderId,
       shopifyCustomerId: "gid://shopify/Customer/demo-5501",
-      issueType: "ORDER_STATUS", customerPhone: phone,
-      customerName: "Alex Johnson", orderSnapshot: snapshot,
+      phone: normalized.e164,
+      purpose: "ORDER_SUPPORT",
+      source: "reviewer_demo",
+      locale: settings.defaultLocale,
+      storeName: settings.storeName,
+      userAgentSummary: "reviewer-demo",
+    });
+    const supportCase = await createSupportCase({
+      shopId: settings.id,
+      shopDomain: settings.shopDomain,
+      shopifyOrderId: snapshot.orderId,
+      shopifyOrderName: "#1043",
+      shopifyCustomerId: "gid://shopify/Customer/demo-5501",
+      issueType: "ORDER_STATUS",
+      customerPhone: normalized.e164,
+      customerName: "Alex Johnson",
+      orderSnapshot: snapshot,
+      consentId: consent.id,
     });
 
     await buildCallPlan({
-      supportCaseId: supportCase.caseId, shopId: settings.id,
-      storeName: settings.storeName, agentName: settings.agentName,
-      issueType: "ORDER_STATUS", customerPhone: phone,
-      region: "US", locale: settings.defaultLocale,
+      supportCaseId: supportCase.caseId,
+      shopId: settings.id,
+      storeName: settings.storeName,
+      agentName: settings.agentName,
+      issueType: "ORDER_STATUS",
+      customerPhone: normalized.e164,
+      region: normalized.region,
+      locale: settings.defaultLocale,
       verificationCode: supportCase.verificationCode,
-      orderSnapshot: snapshot, orderName: "#1043",
-      stuckOrder: { blockerDescription: "Package marked delivered but never received.", emailAttempts: 2 },
+      orderSnapshot: snapshot,
+      orderName: "#1043",
+      stuckOrder: {
+        blockerDescription: "Package marked delivered but never received.",
+        emailAttempts: 2,
+      },
     });
 
     // Submit the call
@@ -169,15 +221,35 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       where: { supportCaseId: supportCase.caseId },
     });
     if (callPlan) {
-      await submitCall({ supportCaseId: supportCase.caseId, callPlanId: callPlan.id, shopId: settings.id });
+      await enqueueJob(
+        JOBS.CALL_PLACEMENT,
+        {
+          supportCaseId: supportCase.caseId,
+          callPlanId: callPlan.id,
+          shopId: settings.id,
+        },
+        `call-plan:${callPlan.id}`,
+      );
+      await prisma.supportCase.update({
+        where: { id: supportCase.caseId },
+        data: { status: "CALL_SUBMITTED" },
+      });
     }
 
     return new Response(null, {
       status: 302,
-      headers: { Location: `/demo/customer?token=${encodeURIComponent(demoToken)}&status=ok&case=${supportCase.publicReference}&code=${supportCase.verificationCode}` },
+      headers: {
+        Location: `/demo/customer?token=${encodeURIComponent(demoToken)}&status=ok&case=${supportCase.publicReference}&code=${supportCase.verificationCode}`,
+      },
     });
   } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : "Could not create case";
-    return new Response(null, { status: 302, headers: { Location: `/demo/customer?token=${encodeURIComponent(demoToken)}&error=${encodeURIComponent(msg)}` } });
+    const msg =
+      error instanceof Error ? error.message : "Could not create case";
+    return new Response(null, {
+      status: 302,
+      headers: {
+        Location: `/demo/customer?token=${encodeURIComponent(demoToken)}&error=${encodeURIComponent(msg)}`,
+      },
+    });
   }
 };

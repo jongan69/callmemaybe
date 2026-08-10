@@ -1,7 +1,5 @@
 import crypto from "node:crypto";
 
-const ENCRYPTION_KEY = process.env.APP_ENCRYPTION_KEY;
-
 function getHashPepper(): string {
   if (process.env.HASH_PEPPER) return process.env.HASH_PEPPER;
   if (process.env.NODE_ENV === "production") {
@@ -10,24 +8,70 @@ function getHashPepper(): string {
   return "callmemaybe-development-pepper";
 }
 
-function getKey(): Buffer {
-  if (!ENCRYPTION_KEY) {
+function getEncryptionKeys(): Map<string, Buffer> {
+  const currentVersion = process.env.APP_ENCRYPTION_KEY_VERSION || "1";
+  const configuredKeys = new Map<string, string>();
+  if (process.env.APP_ENCRYPTION_KEY) {
+    configuredKeys.set(currentVersion, process.env.APP_ENCRYPTION_KEY);
+  }
+
+  if (process.env.APP_PREVIOUS_ENCRYPTION_KEYS_JSON) {
+    let previous: unknown;
+    try {
+      previous = JSON.parse(process.env.APP_PREVIOUS_ENCRYPTION_KEYS_JSON);
+    } catch {
+      throw new Error("APP_PREVIOUS_ENCRYPTION_KEYS_JSON must be valid JSON");
+    }
+    if (!previous || typeof previous !== "object" || Array.isArray(previous)) {
+      throw new Error(
+        "APP_PREVIOUS_ENCRYPTION_KEYS_JSON must be an object of version-to-hex-key entries",
+      );
+    }
+    for (const [version, key] of Object.entries(previous)) {
+      if (typeof key !== "string") {
+        throw new Error(`Encryption key version ${version} must be a string`);
+      }
+      configuredKeys.set(version, key);
+    }
+  }
+
+  if (configuredKeys.size === 0) {
     if (process.env.NODE_ENV === "production") {
       throw new Error("APP_ENCRYPTION_KEY is required in production");
     }
-    // Fixture mode stays zero-config, but this development key is never allowed
-    // to protect production data.
-    return crypto.scryptSync(getHashPepper(), "callmemaybe-salt", 32);
+    configuredKeys.set(
+      "1",
+      crypto
+        .scryptSync(getHashPepper(), "callmemaybe-salt", 32)
+        .toString("hex"),
+    );
   }
-  const key = Buffer.from(ENCRYPTION_KEY, "hex");
-  if (key.length !== 32) {
-    throw new Error("APP_ENCRYPTION_KEY must be a 64-character hex string");
+
+  const keys = new Map<string, Buffer>();
+  for (const [version, hex] of configuredKeys) {
+    const key = Buffer.from(hex, "hex");
+    if (!/^\d+$/.test(version) || key.length !== 32 || hex.length !== 64) {
+      throw new Error(
+        `Encryption key version ${version} must be a 64-character hex string`,
+      );
+    }
+    keys.set(version, key);
   }
-  return key;
+  return keys;
+}
+
+function currentEncryptionKey(): { version: string; key: Buffer } {
+  const version = process.env.APP_ENCRYPTION_KEY_VERSION || "1";
+  const key = getEncryptionKeys().get(version);
+  if (!key)
+    throw new Error(
+      `No encryption key is configured for current version ${version}`,
+    );
+  return { version, key };
 }
 
 export function encrypt(plaintext: string): string {
-  const key = getKey();
+  const { version, key } = currentEncryptionKey();
   const iv = crypto.randomBytes(16);
   const cipher = crypto.createCipheriv("aes-256-gcm", key, iv);
   const encrypted = Buffer.concat([
@@ -35,17 +79,24 @@ export function encrypt(plaintext: string): string {
     cipher.final(),
   ]);
   const tag = cipher.getAuthTag();
-  // Format: iv:tag:ciphertext (all hex)
-  return `${iv.toString("hex")}:${tag.toString("hex")}:${encrypted.toString("hex")}`;
+  // Versioned envelope: v<version>:iv:tag:ciphertext (all binary fields hex).
+  return `v${version}:${iv.toString("hex")}:${tag.toString("hex")}:${encrypted.toString("hex")}`;
 }
 
 export function decrypt(ciphertext: string): string {
-  const key = getKey();
   const parts = ciphertext.split(":");
-  if (parts.length !== 3) {
+  const versioned = parts[0]?.startsWith("v") && parts.length === 4;
+  const version = versioned ? parts[0].slice(1) : "1";
+  const payload = versioned ? parts.slice(1) : parts;
+  if (payload.length !== 3) {
     throw new Error("Invalid ciphertext format");
   }
-  const [ivHex, tagHex, encHex] = parts;
+  const key = getEncryptionKeys().get(version);
+  if (!key)
+    throw new Error(
+      `No encryption key is available for ciphertext version ${version}`,
+    );
+  const [ivHex, tagHex, encHex] = payload;
   const iv = Buffer.from(ivHex, "hex");
   const tag = Buffer.from(tagHex, "hex");
   const encrypted = Buffer.from(encHex, "hex");
@@ -54,6 +105,22 @@ export function decrypt(ciphertext: string): string {
   return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString(
     "utf8",
   );
+}
+
+export function encryptionKeyVersion(ciphertext: string): string {
+  const prefix = ciphertext.split(":", 1)[0];
+  return prefix.startsWith("v") ? prefix.slice(1) : "1";
+}
+
+export function rotateCiphertext(ciphertext: string): string {
+  const currentVersion = process.env.APP_ENCRYPTION_KEY_VERSION || "1";
+  if (
+    encryptionKeyVersion(ciphertext) === currentVersion &&
+    ciphertext.startsWith("v")
+  ) {
+    return ciphertext;
+  }
+  return encrypt(decrypt(ciphertext));
 }
 
 export function hashForMatching(value: string): string {
@@ -98,10 +165,10 @@ export function verifyCode(code: string, storedHash: string): boolean {
 }
 
 export function generatePublicReference(): string {
-  // RL-XXXX-XXXX
+  // CMM-XXXX-XXXX
   const part1 = crypto.randomBytes(2).toString("hex").toUpperCase();
   const part2 = crypto.randomBytes(2).toString("hex").toUpperCase();
-  return `RL-${part1}-${part2}`;
+  return `CMM-${part1}-${part2}`;
 }
 
 export function generateIdempotencyKey(
@@ -110,12 +177,16 @@ export function generateIdempotencyKey(
   callAttemptNumber: number,
   callPlanVersion: number,
 ): string {
-  const canonical = `resolve-line:${shopInternalId}:${supportCaseId}:${callAttemptNumber}:${callPlanVersion}`;
+  const canonical = `callmemaybe:${shopInternalId}:${supportCaseId}:${callAttemptNumber}:${callPlanVersion}`;
   return crypto.createHash("sha256").update(canonical).digest("hex");
 }
 
 export function generateRequestId(): string {
   return crypto.randomUUID();
+}
+
+export function generateSecretToken(bytes = 32): string {
+  return crypto.randomBytes(bytes).toString("base64url");
 }
 
 export function redactPhone(phone: string): string {
@@ -133,9 +204,9 @@ export function redactEmail(email: string): string {
 /**
  * Produce the transcript copy that is safe to render in the merchant UI.
  *
- * The encrypted transcript remains the source record. This display copy strips
- * common contact/payment identifiers and any exact sensitive values collected
- * during the call (for example a newly dictated shipping address).
+ * Transcripts are not persisted in production. This helper is retained for
+ * transient redaction and provider-contract tests before the original string is
+ * discarded.
  */
 export function redactTranscript(
   transcript: string,
@@ -143,11 +214,15 @@ export function redactTranscript(
 ): string {
   let redacted = transcript;
 
-  const exactValues = [...new Set(
-    sensitiveValues
-      .map((value) => value?.trim())
-      .filter((value): value is string => Boolean(value && value.length >= 4)),
-  )].sort((a, b) => b.length - a.length);
+  const exactValues = [
+    ...new Set(
+      sensitiveValues
+        .map((value) => value?.trim())
+        .filter((value): value is string =>
+          Boolean(value && value.length >= 4),
+        ),
+    ),
+  ].sort((a, b) => b.length - a.length);
 
   for (const value of exactValues) {
     redacted = redacted.replaceAll(value, "[redacted]");
@@ -165,8 +240,9 @@ export function redactTranscript(
       }
       return candidate;
     })
-    .replace(/\b(?:code|pin|verification code)(\s*(?:is|:)?\s*)\d{4,8}\b/gi, (_match, separator) =>
-      `verification code${separator}[redacted]`,
+    .replace(
+      /\b(?:code|pin|verification code)(\s*(?:is|:)?\s*)\d{4,8}\b/gi,
+      (_match, separator) => `verification code${separator}[redacted]`,
     );
 }
 

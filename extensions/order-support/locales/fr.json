@@ -1,6 +1,9 @@
 {
-  "welcome": "Bienvenue dans l'extension {{target}}!",
-  "iWouldLikeAFreeGiftWithMyOrder": "Je souhaite recevoir un cadeau gratuit avec ma commande",
-  "addAFreeGiftToMyOrder": "Ajouter un cadeau gratuit à ma commande",
-  "metafieldChangesAreNotSupported": "Les modifications de métachamps de panier ne sont pas prises en charge dans cette commande"
+  "heading": "Vous préférez une assistance téléphonique ?",
+  "body": "Vous pouvez consentir maintenant à un appel d’assistance IA concernant cette commande, puis demander l’appel depuis votre compte client connecté.",
+  "consentText": "J’accepte au maximum deux tentatives d’appel d’assistance IA concernant cette commande en sept jours, espacées d’au moins 24 heures. Les appels peuvent être transcrits temporairement. Je peux retirer mon consentement à tout moment.",
+  "save": "Enregistrer le consentement",
+  "saving": "Enregistrement…",
+  "saved": "Consentement enregistré",
+  "error": "Le consentement n’a pas pu être enregistré. Connectez-vous à votre compte client et réessayez."
 }

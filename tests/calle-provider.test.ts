@@ -8,7 +8,12 @@ import { CallePhoneSupportProvider } from "../app/providers/calle-provider.serve
 // drift between our request shape and theirs fails here rather than on a live
 // call.
 
-type Captured = { url: string; method: string; headers: Headers; body: unknown };
+type Captured = {
+  url: string;
+  method: string;
+  headers: Headers;
+  body: unknown;
+};
 
 function providerWith(
   handler: (req: Captured) => { status?: number; body: unknown },
@@ -38,15 +43,17 @@ function providerWith(
 describe("configuration", () => {
   test("rejects a non-HTTPS CALL-E base URL", () => {
     assert.throws(
-      () => new CallePhoneSupportProvider("test_key", "http://api.heycall-e.com"),
-      /official CALL-E origin/,
+      () =>
+        new CallePhoneSupportProvider("test_key", "http://api.heycall-e.com"),
+      /Refusing to send the CALL-E API key/,
     );
   });
 
   test("rejects a different CALL-E base URL host", () => {
     assert.throws(
-      () => new CallePhoneSupportProvider("test_key", "https://attacker.example"),
-      /official CALL-E origin/,
+      () =>
+        new CallePhoneSupportProvider("test_key", "https://attacker.example"),
+      /Refusing to send the CALL-E API key/,
     );
   });
 });
@@ -76,7 +83,11 @@ function callTaskFixture(overrides: Record<string, unknown> = {}) {
             completed_at: "2026-08-01T17:01:00Z",
             summary: "Confirmed.",
             transcript_turns: [
-              { offset_seconds: 0, speaker: "bot", text: "This is an AI assistant." },
+              {
+                offset_seconds: 0,
+                speaker: "bot",
+                text: "This is an AI assistant.",
+              },
               { offset_seconds: 8, speaker: "user", text: "Go ahead." },
             ],
             provider_call_id: "prov_1",
@@ -86,7 +97,10 @@ function callTaskFixture(overrides: Record<string, unknown> = {}) {
         ],
       },
     ],
-    structured_result: { disposition: "completed", identity_status: "verified" },
+    structured_result: {
+      disposition: "completed",
+      identity_status: "verified",
+    },
     summary: "Address confirmed.",
     task_completed: true,
     completion_confidence: { score: 0.92, label: "high" },
@@ -100,10 +114,136 @@ function callTaskFixture(overrides: Record<string, unknown> = {}) {
   };
 }
 
+describe("base URL allowlist", () => {
+  test("defaults to the official production origin when unset", async () => {
+    const seen: Captured[] = [];
+    const provider = new CallePhoneSupportProvider(
+      "test_key",
+      undefined,
+      async (input) => {
+        seen.push({
+          url: input.url,
+          method: input.method,
+          headers: input.headers,
+          body: undefined,
+        });
+        return new Response(JSON.stringify(callTaskFixture()), {
+          status: 201,
+          headers: { "Content-Type": "application/json" },
+        });
+      },
+    );
+
+    await provider.createCall({
+      recipientPhone: "+15551234567",
+      region: "US",
+      locale: "en-US",
+      idempotencyKey: "k",
+      taskText: "task",
+      resultSchema: {},
+      metadata: {},
+    });
+
+    assert.ok(seen[0].url.startsWith("https://api.heycall-e.com/v1/calls"));
+  });
+
+  test("accepts only the exact official production origin", () => {
+    new CallePhoneSupportProvider(
+      "test_key",
+      "https://api.heycall-e.com",
+      async () => new Response(),
+    );
+    assert.throws(
+      () =>
+        new CallePhoneSupportProvider(
+          "test_key",
+          "https://test-api.heycall-e.com",
+          async () => new Response(),
+        ),
+      /Refusing to send the CALL-E API key/,
+    );
+  });
+
+  test("refuses an arbitrary host even over HTTPS", () => {
+    assert.throws(
+      () =>
+        new CallePhoneSupportProvider(
+          "test_key",
+          "https://api.example.test",
+          async () => new Response(),
+        ),
+      /Refusing to send the CALL-E API key/,
+    );
+  });
+
+  test("refuses plain HTTP", () => {
+    assert.throws(
+      () =>
+        new CallePhoneSupportProvider(
+          "test_key",
+          "http://api.heycall-e.com",
+          async () => new Response(),
+        ),
+      /Refusing to send the CALL-E API key/,
+    );
+  });
+
+  test("refuses a lookalike subdomain of the official origin", () => {
+    assert.throws(
+      () =>
+        new CallePhoneSupportProvider(
+          "test_key",
+          "https://api.heycall-e.com.evil.example",
+          async () => new Response(),
+        ),
+      /Refusing to send the CALL-E API key/,
+    );
+  });
+
+  test("refuses the official origin with normalization, path, port, credentials, query, or fragment", () => {
+    for (const bad of [
+      " https://api.heycall-e.com",
+      "HTTPS://api.heycall-e.com",
+      "https://api.heycall-e.com/v2",
+      "https://api.heycall-e.com:443",
+      "https://api.heycall-e.com:8443",
+      "https://user:pass@api.heycall-e.com",
+      "https://api.heycall-e.com?target=other",
+      "https://api.heycall-e.com#fragment",
+    ]) {
+      assert.throws(
+        () =>
+          new CallePhoneSupportProvider(
+            "test_key",
+            bad,
+            async () => new Response(),
+          ),
+        /Refusing to (send the CALL-E API key|use CALLE_BASE_URL)/,
+        `${bad} must be rejected`,
+      );
+    }
+  });
+
+  test("refuses an unparseable value", () => {
+    assert.throws(
+      () =>
+        new CallePhoneSupportProvider(
+          "test_key",
+          "api.heycall-e.com",
+          async () => new Response(),
+        ),
+      /Refusing to use invalid CALLE_BASE_URL/,
+    );
+  });
+});
+
 describe("createCall request shape", () => {
   test("matches the documented CreateCallRequest", async () => {
     const seen: Captured[] = [];
-    const provider = providerWith(() => ({ status: 201, body: callTaskFixture() }), seen);
+    const provider = providerWith(
+      () => ({ status: 201, body: callTaskFixture() }),
+      seen,
+    );
 
     await provider.createCall({
       recipientPhone: "+15551234567",
@@ -140,7 +280,10 @@ describe("createCall request shape", () => {
 
   test("sends the idempotency key as a header", async () => {
     const seen: Captured[] = [];
-    const provider = providerWith(() => ({ status: 201, body: callTaskFixture() }), seen);
+    const provider = providerWith(
+      () => ({ status: 201, body: callTaskFixture() }),
+      seen,
+    );
 
     await provider.createCall({
       recipientPhone: "+15551234567",
@@ -157,7 +300,10 @@ describe("createCall request shape", () => {
 
   test("omits webhook_url when not configured", async () => {
     const seen: Captured[] = [];
-    const provider = providerWith(() => ({ status: 201, body: callTaskFixture() }), seen);
+    const provider = providerWith(
+      () => ({ status: 201, body: callTaskFixture() }),
+      seen,
+    );
 
     await provider.createCall({
       recipientPhone: "+15551234567",
@@ -265,7 +411,11 @@ describe("normalization", () => {
         body: callTaskFixture({ status: upstream, structured_result: null }),
       }));
       const call = await provider.getCall("call_123");
-      assert.equal(call.status, expected, `${upstream} should map to ${expected}`);
+      assert.equal(
+        call.status,
+        expected,
+        `${upstream} should map to ${expected}`,
+      );
     }
   });
 
@@ -310,7 +460,10 @@ describe("normalization", () => {
   });
 
   test("prefers attempt-level failure when the task reports none", async () => {
-    const fixture = callTaskFixture({ status: "failed", structured_result: null });
+    const fixture = callTaskFixture({
+      status: "failed",
+      structured_result: null,
+    });
     const recipient = (fixture.recipients as Record<string, unknown>[])[0];
     const attempt = (recipient.attempts as Record<string, unknown>[])[0];
     attempt.failure_code = "busy";
@@ -326,7 +479,10 @@ describe("normalization", () => {
   test("falls back to recipient-level structured result", async () => {
     const fixture = callTaskFixture({ structured_result: null });
     const recipient = (fixture.recipients as Record<string, unknown>[])[0];
-    recipient.structured_result = { disposition: "completed", trace_opened: "yes" };
+    recipient.structured_result = {
+      disposition: "completed",
+      trace_opened: "yes",
+    };
 
     const provider = providerWith(() => ({ body: fixture }));
     const call = await provider.getCall("call_123");
@@ -428,7 +584,10 @@ describe("webhook normalization", () => {
           id: "call_123",
           // A spoofed body claiming the task succeeded with a forged result.
           task_completed: true,
-          structured_result: { disposition: "completed", requested_action: "cancel_order" },
+          structured_result: {
+            disposition: "completed",
+            requested_action: "cancel_order",
+          },
         },
       },
       new Headers(),
@@ -445,7 +604,11 @@ describe("webhook normalization", () => {
     const provider = providerWith(() => ({ body: callTaskFixture() }));
 
     await assert.rejects(
-      () => provider.normalizeWebhook({ id: "evt_abc", type: "call.completed" }, new Headers()),
+      () =>
+        provider.normalizeWebhook(
+          { id: "evt_abc", type: "call.completed" },
+          new Headers(),
+        ),
       /data\.id/,
     );
   });

@@ -307,9 +307,7 @@ export class FakePhoneSupportProvider implements PhoneSupportProvider {
       {
         providerEventId: generateFakeEventId(),
         eventType: "call.completed",
-        eventTime: new Date(
-          now.getTime() + 2000 + fixture.delay,
-        ).toISOString(),
+        eventTime: new Date(now.getTime() + 2000 + fixture.delay).toISOString(),
         sequence: 4,
         payload: {
           status: "completed",
@@ -325,8 +323,7 @@ export class FakePhoneSupportProvider implements PhoneSupportProvider {
     const normalizedCall: NormalizedCall = {
       providerCallId: callId,
       status: "COMPLETED",
-      outcome:
-        fixture.outcome === "COMPLETED" ? "ANSWERED" : "FAILED",
+      outcome: fixture.outcome === "COMPLETED" ? "ANSWERED" : "FAILED",
       taskCompleted: fixture.taskCompleted,
       recipientPhone: input.recipientPhone,
       completionConfidenceScore: fixture.confidence,
@@ -353,13 +350,9 @@ export class FakePhoneSupportProvider implements PhoneSupportProvider {
       events: callEvents,
       startedAt: now.toISOString(),
       connectedAt: new Date(now.getTime() + 2000).toISOString(),
-      completedAt: new Date(
-        now.getTime() + 2000 + fixture.delay,
-      ).toISOString(),
+      completedAt: new Date(now.getTime() + 2000 + fixture.delay).toISOString(),
       createdAt: now.toISOString(),
-      updatedAt: new Date(
-        now.getTime() + 2000 + fixture.delay,
-      ).toISOString(),
+      updatedAt: new Date(now.getTime() + 2000 + fixture.delay).toISOString(),
     };
 
     this.calls.set(callId, normalizedCall);
@@ -390,8 +383,7 @@ export class FakePhoneSupportProvider implements PhoneSupportProvider {
     _headers: Headers,
   ): Promise<NormalizedWebhookResult> {
     const rawPayload = body as Record<string, unknown>;
-    const callId =
-      (rawPayload.call_id as string) ?? `fake-wb-${Date.now()}`;
+    const callId = (rawPayload.call_id as string) ?? `fake-wb-${Date.now()}`;
 
     // Check for duplicate delivery
     const payloadKey = JSON.stringify(body);

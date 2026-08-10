@@ -49,7 +49,8 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
       riskLevel: p.riskLevel,
       phoneLastFour: p.supportCase.customerPhoneLastFour,
       callSummary: p.supportCase.callAttempts[0]?.summary ?? null,
-      confidence: p.supportCase.callAttempts[0]?.completionConfidenceScore ?? null,
+      confidence:
+        p.supportCase.callAttempts[0]?.completionConfidenceScore ?? null,
       createdAt: p.createdAt.toISOString(),
     })),
   };
@@ -62,24 +63,56 @@ export default function Approvals() {
     <s-page heading="Pending approvals">
       <s-section heading="Cases requiring your approval">
         {approvals.length === 0 ? (
-          <s-box padding="base" borderWidth="base" borderRadius="base" background="subdued">
-            <s-text>No pending approvals. All cases have been resolved or are in progress.</s-text>
+          <s-box
+            padding="base"
+            borderWidth="base"
+            borderRadius="base"
+            background="subdued"
+          >
+            <s-text>
+              No pending approvals. All cases have been resolved or are in
+              progress.
+            </s-text>
           </s-box>
         ) : (
           approvals.map((approval) => (
-            <s-box key={approval.id} padding="base" borderWidth="base" borderRadius="base">
+            <s-box
+              key={approval.id}
+              padding="base"
+              borderWidth="base"
+              borderRadius="base"
+            >
               <s-stack direction="inline" gap="base">
                 <s-stack direction="block" gap="base">
-                  <s-heading>{approval.caseReference} - {approval.issueType.replace(/_/g, " ")}</s-heading>
-                  <s-text>Order: {approval.orderName} | Phone: ***-***-{approval.phoneLastFour}</s-text>
-                  <s-text>Action: {approval.actionType.replace(/_/g, " ")}</s-text>
+                  <s-heading>
+                    {approval.caseReference} -{" "}
+                    {approval.issueType.replace(/_/g, " ")}
+                  </s-heading>
+                  <s-text>
+                    Order: {approval.orderName} | Phone: ***-***-
+                    {approval.phoneLastFour}
+                  </s-text>
+                  <s-text>
+                    Action: {approval.actionType.replace(/_/g, " ")}
+                  </s-text>
                   {approval.riskLevel && (
-                    <s-badge tone={approval.riskLevel === "HIGH" || approval.riskLevel === "CRITICAL" ? "critical" : "info"}>
+                    <s-badge
+                      tone={
+                        approval.riskLevel === "HIGH" ||
+                        approval.riskLevel === "CRITICAL"
+                          ? "critical"
+                          : "info"
+                      }
+                    >
                       Risk: {approval.riskLevel}
                     </s-badge>
                   )}
                   {approval.callSummary && (
-                    <s-box padding="base" background="subdued" borderRadius="base">
+                    <s-box
+                      padding="base"
+                      background="subdued"
+                      borderRadius="base"
+                    >
                       <s-heading>Call summary:</s-heading>
                       <s-text>{approval.callSummary}</s-text>
                     </s-box>
@@ -87,9 +120,13 @@ export default function Approvals() {
                 </s-stack>
                 <s-stack direction="block" gap="base">
                   {approval.confidence !== null && (
-                    <s-text>Confidence: {Math.round(approval.confidence * 100)}%</s-text>
+                    <s-text>
+                      Confidence: {Math.round(approval.confidence * 100)}%
+                    </s-text>
                   )}
-                  <s-link href={`/app/cases/${approval.caseReference}`}>Review case</s-link>
+                  <s-link href={`/app/cases/${approval.caseReference}`}>
+                    Review case
+                  </s-link>
                 </s-stack>
               </s-stack>
             </s-box>

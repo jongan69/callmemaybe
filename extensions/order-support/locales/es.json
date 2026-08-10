@@ -1,0 +1,9 @@
+{
+  "heading": "¿Prefieres soporte telefónico?",
+  "body": "Puedes consentir ahora a una llamada de soporte con IA sobre este pedido y solicitarla desde tu cuenta de cliente.",
+  "consentText": "Acepto hasta dos intentos de llamada de soporte con IA sobre este pedido en siete días, separados por al menos 24 horas. Las llamadas pueden transcribirse temporalmente. Puedo retirar mi consentimiento cuando quiera.",
+  "save": "Guardar consentimiento",
+  "saving": "Guardando…",
+  "saved": "Consentimiento guardado",
+  "error": "No se pudo guardar. Inicia sesión en tu cuenta de cliente e inténtalo de nuevo."
+}

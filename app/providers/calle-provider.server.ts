@@ -14,6 +14,7 @@ import type {
   CallStatus,
   CallOutcome,
 } from "../lib/types";
+import { validateCalleBaseUrl } from "../services/config.server";
 
 // Real CALL-E provider, built on the official @call-e/calle TypeScript server SDK.
 //
@@ -30,8 +31,9 @@ import type {
 
 const CALLE_API_KEY = process.env.CALLE_API_KEY || "";
 const CALLE_BASE_URL = process.env.CALLE_BASE_URL || undefined;
-const OFFICIAL_CALLE_ORIGIN = "https://api.heycall-e.com";
 
+// CALLE_BASE_URL is validated before the SDK client receives either it or the
+// bearer credential. A configuration error therefore cannot redirect the key.
 export class CallePhoneSupportProvider implements PhoneSupportProvider {
   private client: CalleClient;
 
@@ -49,10 +51,9 @@ export class CallePhoneSupportProvider implements PhoneSupportProvider {
         "CALLE_API_KEY is required for the real CALL-E provider. Set it in .env or pass it to the constructor.",
       );
     }
-    const resolvedBaseUrl = resolveCalleBaseUrl(baseUrl || CALLE_BASE_URL);
     this.client = new CalleClient({
       apiKey: key,
-      baseUrl: resolvedBaseUrl,
+      baseUrl: validateCalleBaseUrl(baseUrl || CALLE_BASE_URL),
       ...(fetchImpl ? { fetch: fetchImpl } : {}),
     });
   }
@@ -171,31 +172,8 @@ export class CallePhoneSupportProvider implements PhoneSupportProvider {
 
 // ─── Helpers ─────────────────────────────────────────────────
 
-function resolveCalleBaseUrl(configuredBaseUrl?: string): string {
-  const candidate = configuredBaseUrl?.trim() || OFFICIAL_CALLE_ORIGIN;
-
-  try {
-    const url = new URL(candidate);
-    const isOriginOnly =
-      url.origin === OFFICIAL_CALLE_ORIGIN &&
-      url.pathname === "/" &&
-      !url.search &&
-      !url.hash &&
-      !url.username &&
-      !url.password;
-
-    if (isOriginOnly) {
-      return OFFICIAL_CALLE_ORIGIN;
-    }
-  } catch {
-    // Fall through to the same fail-closed configuration error.
-  }
-
-  throw new Error(
-    `CALLE_BASE_URL must be the official CALL-E origin: ${OFFICIAL_CALLE_ORIGIN}`,
-  );
-}
-
+// Resolve and pin the API base URL. Unset means the official production origin
+// (the SDK default). Any configured value is validated before client creation.
 function mapCalleStatus(status: Call["status"]): CallStatus {
   switch (status) {
     case "queued":

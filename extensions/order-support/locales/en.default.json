@@ -1,6 +1,9 @@
 {
-  "welcome": "Welcome to the {{target}} extension!",
-  "iWouldLikeAFreeGiftWithMyOrder": "I would like to receive a free gift with my order",
-  "addAFreeGiftToMyOrder": "Add a free gift to my order",
-  "metafieldChangesAreNotSupported": "Cart metafield changes are not supported in this checkout"
+  "heading": "Prefer phone support?",
+  "body": "You can consent now to an AI-assisted support call about this order, then request the call from your signed-in customer account.",
+  "consentText": "I ask the store to call me with an AI support assistant about this order. This allows up to two attempts in seven days, at least 24 hours apart. The call is processed by AI and may be transcribed temporarily. I can revoke consent at any time from my signed-in customer account or order-status page.",
+  "save": "Save call consent",
+  "saving": "Saving…",
+  "saved": "Call consent saved",
+  "error": "Call consent could not be saved. Sign in to your customer account and try again."
 }

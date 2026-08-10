@@ -216,11 +216,7 @@ export type CallDisposition =
   | "unknown";
 
 export type CustomerConfirmation =
-  | "confirmed"
-  | "not_confirmed"
-  | "unclear"
-  | "not_applicable"
-  | "unknown";
+  "confirmed" | "not_confirmed" | "unclear" | "not_applicable" | "unknown";
 
 export type NeedsHuman = "yes" | "no" | "unknown";
 

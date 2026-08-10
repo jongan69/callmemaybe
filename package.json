@@ -3,29 +3,38 @@
   "private": true,
   "scripts": {
     "build": "react-router build",
+    "build:extensions": "node --import tsx scripts/build-extensions-strict.ts",
     "dev": "shopify app dev",
     "config:link": "shopify app config link",
     "generate": "shopify app generate",
     "deploy": "shopify app deploy",
     "config:use": "shopify app config use",
     "env": "shopify app env",
-    "start": "react-router-serve ./build/server/index.js",
+    "start": "node --import tsx scripts/validate-runtime.ts && react-router-serve ./build/server/index.js",
+    "worker": "node --import tsx app/worker.server.ts",
+    "maintenance": "node --import tsx scripts/run-maintenance.ts",
     "docker-start": "npm run setup && npm run start",
-    "setup": "prisma generate && prisma migrate deploy",
+    "setup": "prisma generate && prisma migrate deploy && npm run seed && npm run queue:setup",
     "lint": "eslint --ignore-path .gitignore --ignore-pattern 'extensions/*/shopify.d.ts' --cache --cache-location ./node_modules/.cache/eslint .",
     "shopify": "shopify",
     "prisma": "prisma",
     "graphql-codegen": "graphql-codegen",
     "vite": "vite",
     "typecheck": "react-router typegen && tsc --noEmit",
+    "format:check": "prettier --check .",
     "verify:calle": "node --env-file-if-exists=.env --import tsx scripts/verify-calle.ts",
     "seed": "node --env-file-if-exists=.env --import tsx prisma/seed.ts",
+    "queue:setup": "node --env-file-if-exists=.env --import tsx scripts/initialize-queue.ts",
+    "validate:seed": "node --env-file-if-exists=.env --import tsx scripts/validate-seed.ts",
+    "validate:release": "node --env-file-if-exists=.env --import tsx scripts/validate-release.ts",
+    "validate:repo": "node --import tsx scripts/validate-repository.ts",
     "test": "node --import tsx --test tests/*.test.ts",
-    "check": "npm test && npm run typecheck && npm run lint && npm run build"
+    "check": "npm run format:check && npm test && npm run typecheck && npm run lint && npm run build && npm run build:extensions",
+    "ci:verify": "npm run check && npm run validate:seed && npm run validate:repo && npm audit --audit-level=high --omit=dev"
   },
   "type": "module",
   "engines": {
-    "node": ">=20.19 <22 || >=22.12"
+    "node": ">=22.12 <23"
   },
   "dependencies": {
     "@call-e/calle": "^0.6.0",
@@ -38,12 +47,17 @@
     "@shopify/cli": "4.6.0",
     "@shopify/shopify-app-react-router": "^1.1.0",
     "@shopify/shopify-app-session-storage-prisma": "^9.0.0",
+    "@sentry/node": "^10.69.0",
     "isbot": "^5.1.31",
+    "libphonenumber-js": "^1.13.10",
+    "pg-boss": "^12.27.0",
     "prisma": "^6.16.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router": "^7.12.0",
-    "vite-tsconfig-paths": "^6.0.4"
+    "tsx": "^4.23.5",
+    "vite-tsconfig-paths": "^6.0.4",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@shopify/api-codegen-preset": "^2.0.0",
@@ -62,7 +76,6 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "graphql-config": "^5.1.1",
     "prettier": "^3.6.2",
-    "tsx": "^4.23.5",
     "typescript": "^5.9.3",
     "vite": "^7.3.1"
   },

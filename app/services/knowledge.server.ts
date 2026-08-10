@@ -49,8 +49,19 @@ export async function syncShopPolicies(
     }
 
     const appliesToByType: Record<string, string[]> = {
-      REFUND_POLICY: ["RETURN", "CANCELLATION", "DAMAGED_ITEM", "WRONG_ITEM", "MISSING_ITEM"],
-      SHIPPING_POLICY: ["ORDER_STATUS", "ADDRESS_CHANGE", "CARRIER_TRACE", "STUCK_ORDER_OUTREACH"],
+      REFUND_POLICY: [
+        "RETURN",
+        "CANCELLATION",
+        "DAMAGED_ITEM",
+        "WRONG_ITEM",
+        "MISSING_ITEM",
+      ],
+      SHIPPING_POLICY: [
+        "ORDER_STATUS",
+        "ADDRESS_CHANGE",
+        "CARRIER_TRACE",
+        "STUCK_ORDER_OUTREACH",
+      ],
       PRIVACY_POLICY: [],
       TERMS_OF_SERVICE: ["OTHER"],
       SUBSCRIPTION_POLICY: ["OTHER"],
@@ -102,7 +113,9 @@ export async function syncShopPolicies(
 
     return { synced, errors };
   } catch (e) {
-    errors.push(e instanceof Error ? e.message : "Unknown error syncing policies");
+    errors.push(
+      e instanceof Error ? e.message : "Unknown error syncing policies",
+    );
     return { synced, errors };
   }
 }

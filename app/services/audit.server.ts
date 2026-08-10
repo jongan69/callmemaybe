@@ -1,5 +1,6 @@
 import prisma from "../db.server";
-import { generateRequestId } from "../lib/crypto.server";
+import { generateRequestId, hashForMatching } from "../lib/crypto.server";
+import { logEvent, sanitizeTelemetry } from "./logger.server";
 
 type AuditActorType = "system" | "merchant" | "customer" | "webhook";
 
@@ -21,18 +22,32 @@ export async function createAuditEvent(params: {
         shopId: params.shopId,
         supportCaseId: params.supportCaseId,
         actorType: params.actorType,
-        actorId: params.actorId,
+        actorId:
+          params.actorType === "customer" && params.actorId
+            ? hashForMatching(params.actorId)
+            : params.actorId,
         action: params.action,
         resourceType: params.resourceType,
         resourceId: params.resourceId,
         requestId: generateRequestId(),
         beforeHash: params.beforeHash,
         afterHash: params.afterHash,
-        metadataJson: params.metadata ? JSON.stringify(params.metadata) : null,
+        metadataJson: params.metadata
+          ? JSON.stringify(sanitizeTelemetry(params.metadata))
+          : null,
       },
     });
   } catch (error) {
-    console.error("[Audit] Failed to create audit event:", error);
+    logEvent("error", "audit.write_failed", {
+      action: params.action,
+      resourceType: params.resourceType,
+      errorType: error instanceof Error ? error.name : "UnknownError",
+      errorCode:
+        typeof error === "object" && error && "code" in error
+          ? String(error.code).slice(0, 100)
+          : undefined,
+    });
+    throw error;
   }
 }
 

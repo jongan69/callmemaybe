@@ -1,4 +1,8 @@
-import type { OrderSnapshot, ActionReceipt, ResolutionActionType } from "../lib/types";
+import type {
+  OrderSnapshot,
+  ActionReceipt,
+  ResolutionActionType,
+} from "../lib/types";
 import { generateRequestId, sha256Hash } from "../lib/crypto.server";
 import { createError, ErrorCodes } from "../lib/errors.server";
 
@@ -6,7 +10,10 @@ import { createError, ErrorCodes } from "../lib/errors.server";
 // It's instantiated per-request with the authenticated admin client.
 
 export interface AdminClient {
-  graphql(query: string, options?: { variables?: Record<string, unknown> }): Promise<{ json(): Promise<unknown> }>;
+  graphql(
+    query: string,
+    options?: { variables?: Record<string, unknown> },
+  ): Promise<{ json(): Promise<unknown> }>;
 }
 
 export interface OrderContext {
@@ -14,7 +21,6 @@ export interface OrderContext {
   orderName: string;
   customerId: string | null;
   customerName: string | null;
-  customerEmail: string | null;
   customerPhone: string | null;
   displayFulfillmentStatus: string;
   displayFinancialStatus: string;
@@ -58,7 +64,6 @@ export async function fetchOrderContext(
           id
           firstName
           lastName
-          defaultEmailAddress { emailAddress }
           defaultPhoneNumber { phoneNumber }
         }
         shippingAddress {
@@ -111,7 +116,10 @@ export async function fetchOrderContext(
   const order = json.data.order as Record<string, unknown>;
   const address = order.shippingAddress as ShippingAddress | null;
   const customer = order.customer as Record<string, unknown> | null;
-  const lineItems = ((order.lineItems as { edges?: Array<{ node: Record<string, unknown> }> })?.edges ?? []).map((e) => ({
+  const lineItems = (
+    (order.lineItems as { edges?: Array<{ node: Record<string, unknown> }> })
+      ?.edges ?? []
+  ).map((e) => ({
     id: e.node.id as string,
     title: e.node.title as string,
     quantity: e.node.quantity as number,
@@ -123,21 +131,33 @@ export async function fetchOrderContext(
     orderName: order.name as string,
     customerId: (customer?.id as string) || null,
     customerName: customer
-      ? [customer.firstName, customer.lastName].filter(Boolean).join(" ") || null
+      ? [customer.firstName, customer.lastName].filter(Boolean).join(" ") ||
+        null
       : null,
-    customerEmail:
-      ((customer?.defaultEmailAddress as { emailAddress?: string } | undefined)?.emailAddress) || null,
     customerPhone:
-      ((customer?.defaultPhoneNumber as { phoneNumber?: string } | undefined)?.phoneNumber) || null,
-    displayFulfillmentStatus: (order.displayFulfillmentStatus as string) || "UNFULFILLED",
-    displayFinancialStatus: (order.displayFinancialStatus as string) || "PENDING",
+      (customer?.defaultPhoneNumber as { phoneNumber?: string } | undefined)
+        ?.phoneNumber || null,
+    displayFulfillmentStatus:
+      (order.displayFulfillmentStatus as string) || "UNFULFILLED",
+    displayFinancialStatus:
+      (order.displayFinancialStatus as string) || "PENDING",
     canceledAt: (order.canceledAt as string) || null,
     shippingAddress: address,
     lineItems,
     totalPriceSet: {
       shopMoney: {
-        amount: (order.totalPriceSet as { shopMoney: { amount: string; currencyCode: string } })?.shopMoney?.amount || "0",
-        currencyCode: (order.totalPriceSet as { shopMoney: { amount: string; currencyCode: string } })?.shopMoney?.currencyCode || "USD",
+        amount:
+          (
+            order.totalPriceSet as {
+              shopMoney: { amount: string; currencyCode: string };
+            }
+          )?.shopMoney?.amount || "0",
+        currencyCode:
+          (
+            order.totalPriceSet as {
+              shopMoney: { amount: string; currencyCode: string };
+            }
+          )?.shopMoney?.currencyCode || "USD",
       },
     },
     createdAt: order.createdAt as string,
@@ -145,7 +165,10 @@ export async function fetchOrderContext(
   };
 }
 
-export function buildOrderSnapshot(order: OrderContext): OrderSnapshot {
+export function buildOrderSnapshot(
+  order: OrderContext,
+  capturedAt = new Date(),
+): OrderSnapshot {
   return {
     orderId: order.orderId,
     updatedAt: order.updatedAt,
@@ -155,11 +178,15 @@ export function buildOrderSnapshot(order: OrderContext): OrderSnapshot {
     shippingAddressHash: order.shippingAddress
       ? sha256Hash(JSON.stringify(order.shippingAddress))
       : null,
-    fulfillmentHash: sha256Hash(JSON.stringify(order.lineItems.map((l) => l.unfulfilledQuantity))),
+    fulfillmentHash: sha256Hash(
+      JSON.stringify(order.lineItems.map((l) => l.unfulfilledQuantity)),
+    ),
     lineItemHash: sha256Hash(JSON.stringify(order.lineItems.map((l) => l.id))),
-    totalMinor: Math.round(parseFloat(order.totalPriceSet.shopMoney.amount) * 100),
+    totalMinor: Math.round(
+      parseFloat(order.totalPriceSet.shopMoney.amount) * 100,
+    ),
     currencyCode: order.totalPriceSet.shopMoney.currencyCode,
-    capturedAt: order.createdAt,
+    capturedAt: capturedAt.toISOString(),
   };
 }
 
@@ -170,10 +197,14 @@ export function compareOrderSnapshots(
   const reasons: string[] = [];
 
   if (before.fulfillmentStatus !== after.fulfillmentStatus) {
-    reasons.push(`Fulfillment changed: ${before.fulfillmentStatus} → ${after.fulfillmentStatus}`);
+    reasons.push(
+      `Fulfillment changed: ${before.fulfillmentStatus} → ${after.fulfillmentStatus}`,
+    );
   }
   if (before.financialStatus !== after.financialStatus) {
-    reasons.push(`Financial changed: ${before.financialStatus} → ${after.financialStatus}`);
+    reasons.push(
+      `Financial changed: ${before.financialStatus} → ${after.financialStatus}`,
+    );
   }
   if (before.cancelledAt !== after.cancelledAt) {
     reasons.push("Order cancellation status changed");
@@ -187,7 +218,10 @@ export function compareOrderSnapshots(
   if (before.lineItemHash !== after.lineItemHash) {
     reasons.push("Order line items changed");
   }
-  if (before.totalMinor !== after.totalMinor || before.currencyCode !== after.currencyCode) {
+  if (
+    before.totalMinor !== after.totalMinor ||
+    before.currencyCode !== after.currencyCode
+  ) {
     reasons.push("Order total changed");
   }
   if (before.updatedAt !== after.updatedAt) {
@@ -300,10 +334,13 @@ export async function updateShippingAddress(
   }
 
   const updatedOrder = result?.order;
-  const after = updatedOrder ? {
-    shippingAddress: (updatedOrder as Record<string, unknown>).shippingAddress,
-    updatedAt: (updatedOrder as Record<string, unknown>).updatedAt,
-  } : undefined;
+  const after = updatedOrder
+    ? {
+        shippingAddress: (updatedOrder as Record<string, unknown>)
+          .shippingAddress,
+        updatedAt: (updatedOrder as Record<string, unknown>).updatedAt,
+      }
+    : undefined;
 
   return {
     success: true,
@@ -383,7 +420,11 @@ export async function cancelOrder(
     data?: {
       orderCancel?: {
         job?: { id: string; done: boolean };
-        orderCancelUserErrors?: Array<{ field?: string[]; message: string; code?: string }>;
+        orderCancelUserErrors?: Array<{
+          field?: string[];
+          message: string;
+          code?: string;
+        }>;
       };
     };
   };
@@ -402,7 +443,9 @@ export async function cancelOrder(
     let done = result?.job?.done ?? false;
     for (let attempt = 0; !done && attempt < 20; attempt++) {
       await new Promise((resolve) => setTimeout(resolve, 250));
-      const jobResponse = await admin.graphql(jobQuery, { variables: { id: jobId } });
+      const jobResponse = await admin.graphql(jobQuery, {
+        variables: { id: jobId },
+      });
       const jobJson = (await jobResponse.json()) as {
         data?: { job?: { id: string; done: boolean } };
       };
@@ -411,13 +454,15 @@ export async function cancelOrder(
 
     if (!done) {
       userErrors.push({
-        message: "Shopify accepted the cancellation, but it did not finish in time. Verify the order before retrying.",
+        message:
+          "Shopify accepted the cancellation, but it did not finish in time. Verify the order before retrying.",
       });
     } else {
       const confirmed = await fetchOrderContext(admin, orderId);
       if (!confirmed.canceledAt) {
         userErrors.push({
-          message: "Shopify finished the cancellation job without marking the order cancelled.",
+          message:
+            "Shopify finished the cancellation job without marking the order cancelled.",
         });
       }
     }
