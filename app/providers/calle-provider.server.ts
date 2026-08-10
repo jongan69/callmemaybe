@@ -30,6 +30,7 @@ import type {
 
 const CALLE_API_KEY = process.env.CALLE_API_KEY || "";
 const CALLE_BASE_URL = process.env.CALLE_BASE_URL || undefined;
+const OFFICIAL_CALLE_ORIGIN = "https://api.heycall-e.com";
 
 export class CallePhoneSupportProvider implements PhoneSupportProvider {
   private client: CalleClient;
@@ -48,10 +49,10 @@ export class CallePhoneSupportProvider implements PhoneSupportProvider {
         "CALLE_API_KEY is required for the real CALL-E provider. Set it in .env or pass it to the constructor.",
       );
     }
-    const resolvedBaseUrl = baseUrl || CALLE_BASE_URL;
+    const resolvedBaseUrl = resolveCalleBaseUrl(baseUrl || CALLE_BASE_URL);
     this.client = new CalleClient({
       apiKey: key,
-      ...(resolvedBaseUrl ? { baseUrl: resolvedBaseUrl } : {}),
+      baseUrl: resolvedBaseUrl,
       ...(fetchImpl ? { fetch: fetchImpl } : {}),
     });
   }
@@ -169,6 +170,31 @@ export class CallePhoneSupportProvider implements PhoneSupportProvider {
 }
 
 // ─── Helpers ─────────────────────────────────────────────────
+
+function resolveCalleBaseUrl(configuredBaseUrl?: string): string {
+  const candidate = configuredBaseUrl?.trim() || OFFICIAL_CALLE_ORIGIN;
+
+  try {
+    const url = new URL(candidate);
+    const isOriginOnly =
+      url.origin === OFFICIAL_CALLE_ORIGIN &&
+      url.pathname === "/" &&
+      !url.search &&
+      !url.hash &&
+      !url.username &&
+      !url.password;
+
+    if (isOriginOnly) {
+      return OFFICIAL_CALLE_ORIGIN;
+    }
+  } catch {
+    // Fall through to the same fail-closed configuration error.
+  }
+
+  throw new Error(
+    `CALLE_BASE_URL must be the official CALL-E origin: ${OFFICIAL_CALLE_ORIGIN}`,
+  );
+}
 
 function mapCalleStatus(status: Call["status"]): CallStatus {
   switch (status) {

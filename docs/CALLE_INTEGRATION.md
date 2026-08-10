@@ -114,7 +114,7 @@ Environment:
 
 ```
 CALLE_API_KEY=            # from https://dashboard.heycall-e.com/account/api-keys
-CALLE_BASE_URL=           # optional; SDK default is used when unset
+CALLE_BASE_URL=           # optional; if set, must be https://api.heycall-e.com
 CALLE_WEBHOOK_TOKEN=      # unguessable; forms the callback URL path
 CALL_PROVIDER=calle
 CALLE_REAL_CALLS_ENABLED=true
