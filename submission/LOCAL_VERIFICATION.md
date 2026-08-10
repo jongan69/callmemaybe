@@ -1,12 +1,14 @@
 # Local verification evidence
 
 Date: 2026-08-10
-Candidate: integrated `dev` working tree before commit; **not yet the merged
-hackathon candidate**
+Code candidate: `33ffcd2fde5c3e4eb6c08bbe6955429b6f34e354`, merged by
+[`dev → main` PR #4](https://github.com/jongan69/callmemaybe/pull/4). Remote
+`main` and `dev` were aligned to this merge before the documentation-only
+follow-up.
 
-This evidence confirms repository-level checks only. Replace it with CI links,
-release SHA/image digest, deployed smoke-test results, and reviewer evidence from
-the exact candidate before checking any box in `RELEASE_READINESS.md`.
+This evidence confirms repository-level checks only. Add the deployed service
+SHA, smoke-test results, and reviewer evidence from the exact live candidate
+before checking any live-environment or Devpost box.
 
 ## Passing checks
 
@@ -30,21 +32,25 @@ the exact candidate before checking any box in `RELEASE_READINESS.md`.
   customer phone or order PII.
 - `RELEASE_TARGET=hackathon npm run validate:release` passed against a complete
   production-shaped environment.
-- `npm run validate:repo`: 198 repository files passed the database-artifact,
+- `npm run validate:repo`: 201 repository files passed the database-artifact,
   manifest, forbidden-scope, configuration, and current-file secret checks.
 - `npm audit --audit-level=high --omit=dev`: zero vulnerabilities.
-- Shopify CLI configuration validation reported no issues. `render.yaml` passes
-  Render's current published JSON Schema, and CI/CodeQL workflow files parse as
-  valid YAML. Render's workspace-aware semantic/conflict validation still
-  requires the submitter to authorize the CLI and select a workspace.
+- Shopify CLI configuration validation reported no issues.
+- CALL-E credential and contract preflight authenticated successfully against an
+  intentionally unknown call ID; no call was placed.
+- Render CLI authentication and workspace selection succeeded. `render.yaml`
+  passes Render's published schema and repository checks; its workspace-aware
+  validation now reports only the expected `need_payment_info` gate for the
+  three paid resources.
 - `git diff --check`: no whitespace errors.
+- Merged-`main` [CI run 31363233602](https://github.com/jongan69/callmemaybe/actions/runs/31363233602)
+  passed the full verification job, complete-history Gitleaks scan, production
+  image build, and blocking Trivy vulnerability/secret/misconfiguration scan.
+- Merged-`main` [CodeQL run 31363233649](https://github.com/jongan69/callmemaybe/actions/runs/31363233649)
+  passed.
 
 ## Not locally evidenced
 
-- Docker was unavailable, so the production image build and Trivy scan must pass
-  in GitHub Actions.
-- Gitleaks and Trivy were unavailable locally; CI is configured to scan full Git
-  history and the built image.
 - The historic personal-looking test number remains in an old commit and must be
   assessed as exposed before release; it is absent from current scripts.
 - Live Shopify install/reinstall, App Pricing, protected-data approval, CALL-E
