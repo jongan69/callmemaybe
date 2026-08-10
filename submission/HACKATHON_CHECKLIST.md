@@ -5,12 +5,14 @@ gate remains in `RELEASE_READINESS.md`.
 
 ## Repository candidate
 
-- [ ] WIP backup and retained stash are verified.
-- [ ] Security and production WIP are reconciled on `dev`.
-- [ ] `npm run ci:verify` and Shopify configuration validation pass.
-- [ ] Empty PostgreSQL migration, normal seed, and queue initialization pass.
-- [ ] `dev → main` PR checks pass and the PR is merged.
-- [ ] Remote `main` and `dev` point to the same merged candidate.
+- [x] WIP backup is checksum-verified; temporary integration stashes were
+      removed only after the remote merge and external archive were verified.
+- [x] Security and production WIP are reconciled on `dev`.
+- [x] `npm run ci:verify` and Shopify configuration validation pass.
+- [x] Empty PostgreSQL migration, normal seed, and queue initialization pass.
+- [x] [`dev → main` PR #4](https://github.com/jongan69/callmemaybe/pull/4)
+      passed CI/security review and was merged.
+- [x] Remote `main` and `dev` point to the same merged candidate.
 
 ## Live demo environment
 

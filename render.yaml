@@ -11,6 +11,7 @@ services:
     # The service name intentionally matches the desired onrender.com subdomain.
     name: callmemaybe-hackathon
     runtime: docker
+    repo: https://github.com/jongan69/callmemaybe
     plan: starter
     branch: main
     autoDeployTrigger: checksPass
@@ -71,6 +72,7 @@ services:
   - type: worker
     name: callmemaybe-hackathon-worker
     runtime: docker
+    repo: https://github.com/jongan69/callmemaybe
     plan: starter
     branch: main
     autoDeployTrigger: checksPass
