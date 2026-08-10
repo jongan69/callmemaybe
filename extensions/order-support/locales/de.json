@@ -1,0 +1,9 @@
+{
+  "heading": "Bevorzugen Sie telefonischen Support?",
+  "body": "Sie können jetzt einem KI-gestützten Supportanruf zu dieser Bestellung zustimmen und ihn anschließend im Kundenkonto anfordern.",
+  "consentText": "Ich stimme innerhalb von sieben Tagen höchstens zwei KI-gestützten Anrufversuchen zu dieser Bestellung mit mindestens 24 Stunden Abstand zu. Anrufe können vorübergehend transkribiert werden. Ich kann jederzeit widerrufen.",
+  "save": "Einwilligung speichern",
+  "saving": "Wird gespeichert…",
+  "saved": "Einwilligung gespeichert",
+  "error": "Die Einwilligung konnte nicht gespeichert werden. Melden Sie sich im Kundenkonto an und versuchen Sie es erneut."
+}

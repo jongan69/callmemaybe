@@ -1,17 +1,16 @@
-# CallmeMaybe - Shopify App Configuration
+# CallMeMaybe - Shopify App Configuration
 # Learn more: https://shopify.dev/docs/apps/tools/cli/configuration
 
 client_id = "6938bd7b8b68a62d336d214686fad27f"
-name = "callmemaybe"
-application_url = "https://example.com"
+name = "CallMeMaybe"
+application_url = "https://callmemaybe-hackathon.onrender.com"
 embedded = true
 
 [access_scopes]
-# Required scopes for CallmeMaybe
-# read_orders, write_orders - order management and address updates
-# read_customers - customer data access
+# Required scopes for CallMeMaybe
+# read_orders, write_orders - order-scoped support context and merchant-approved actions
 # read_legal_policies - store policies for knowledge sync
-scopes = "read_orders,write_orders,read_customers,read_legal_policies"
+scopes = "read_orders,write_orders,read_legal_policies"
 
 [webhooks]
 api_version = "2026-07"
@@ -30,7 +29,7 @@ api_version = "2026-07"
 
 
 [auth]
-redirect_urls = [ "https://example.com/api/auth" ]
+redirect_urls = [ "https://callmemaybe-hackathon.onrender.com/auth/callback" ]
 
 [build]
 include_config_on_deploy = true

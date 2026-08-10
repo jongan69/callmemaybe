@@ -1,4 +1,4 @@
-# CallmeMaybe thank-you extension
+# CallMeMaybe thank-you extension
 
 This post-purchase support banner tells buyers where to request a callback from
 their customer account. It appears at `purchase.thank-you.block.render` and does

@@ -1,6 +1,6 @@
 # Contributing
 
-CallmeMaybe is a compact hackathon project, but changes should preserve the same
+CallMeMaybe is a production Shopify app; changes should preserve the same
 safety bar as production order automation.
 
 ## Local setup

@@ -20,7 +20,11 @@ export const loader = async ({ params, request }: LoaderFunctionArgs) => {
   }
 
   return new Response(
-    JSON.stringify(decryptPrivacyExport(privacyRequest.exportEncrypted), null, 2),
+    JSON.stringify(
+      decryptPrivacyExport(privacyRequest.exportEncrypted),
+      null,
+      2,
+    ),
     {
       headers: {
         "Cache-Control": "no-store",

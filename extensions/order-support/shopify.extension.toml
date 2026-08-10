@@ -9,3 +9,6 @@ uid = "407d2d16-b4c7-8315-0ece-baad4f9723925adfcf78"
 [[extensions.targeting]]
 module = "./src/Checkout.jsx"
 target = "purchase.thank-you.block.render"
+
+[extensions.capabilities]
+network_access = true

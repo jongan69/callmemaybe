@@ -23,7 +23,8 @@ describe("redactTranscript", () => {
   });
 
   it("removes exact call-specific values while keeping dialogue readable", () => {
-    const input = "Customer: Send it to 118 Cedar Street, Portland. Agent: I read that back.";
+    const input =
+      "Customer: Send it to 118 Cedar Street, Portland. Agent: I read that back.";
     const output = redactTranscript(input, ["118 Cedar Street", "Portland"]);
 
     assert.equal(

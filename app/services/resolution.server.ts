@@ -1,5 +1,9 @@
 import prisma from "../db.server";
-import type { OrderSnapshot, ResolutionActionType, ActionReceipt } from "../lib/types";
+import type {
+  OrderSnapshot,
+  ResolutionActionType,
+  ActionReceipt,
+} from "../lib/types";
 import {
   type AdminClient,
   fetchOrderContext,
@@ -10,7 +14,8 @@ import {
   addOrderNote,
 } from "./shopify-adapter.server";
 import { createAuditEvent } from "./audit.server";
-import { sha256Hash } from "../lib/crypto.server";
+import { decrypt, encrypt, sha256Hash } from "../lib/crypto.server";
+import { sanitizeTelemetry } from "./logger.server";
 import { ErrorCodes, createError } from "../lib/errors.server";
 
 // Execution is the last mile: an approved proposal becomes an actual change to
@@ -49,10 +54,10 @@ export async function executeResolution(params: {
     include: { supportCase: true },
   });
 
-  if (!proposal) {
+  if (!proposal || proposal.supportCase.shopId !== params.shopId) {
     throw createError(
       ErrorCodes.CASE_NOT_FOUND,
-      `Resolution proposal ${params.proposalId} not found`,
+      `Resolution proposal ${params.proposalId} not found for shop`,
       "That resolution no longer exists.",
     );
   }
@@ -79,29 +84,50 @@ export async function executeResolution(params: {
   }
 
   if (NON_MUTATING.includes(actionType)) {
-    await markCaseResolved(proposal.supportCaseId, params.shopId, params.actorId, actionType);
+    await markCaseResolved(
+      proposal.supportCaseId,
+      params.shopId,
+      params.actorId,
+      actionType,
+    );
     return { status: "SKIPPED", reason: "No Shopify mutation required." };
   }
 
   const orderId = proposal.supportCase.shopifyOrderId;
-  const proposedInput = JSON.parse(proposal.proposedInputJson ?? "{}") as Record<
-    string,
-    unknown
-  >;
+  const proposedInput = JSON.parse(
+    proposal.proposedInputJson ? decrypt(proposal.proposedInputJson) : "{}",
+  ) as Record<string, unknown>;
   const snapshotAtCallTime = JSON.parse(
     proposal.beforeStateJson ?? "null",
   ) as OrderSnapshot | null;
 
-  const execution = await prisma.resolutionExecution.create({
-    data: {
-      resolutionProposalId: proposal.id,
-      idempotencyKey: `exec_${proposal.id}_${Date.now()}`,
-      status: "IN_PROGRESS",
-      startedAt: new Date(),
-      beforeStateJson: proposal.beforeStateJson,
-      requestJson: JSON.stringify({ actionType, orderId, proposedInput }),
-    },
-  });
+  let claimedExecution = true;
+  const execution = await prisma.resolutionExecution
+    .create({
+      data: {
+        resolutionProposalId: proposal.id,
+        idempotencyKey: `exec_${proposal.id}`,
+        status: "IN_PROGRESS",
+        startedAt: new Date(),
+        beforeStateJson: proposal.beforeStateJson,
+        requestJson: encrypt(
+          JSON.stringify({ actionType, orderId, proposedInput }),
+        ),
+      },
+    })
+    .catch(async (error: unknown) => {
+      if ((error as { code?: string }).code !== "P2002") throw error;
+      claimedExecution = false;
+      return prisma.resolutionExecution.findFirstOrThrow({
+        where: { resolutionProposalId: proposal.id },
+      });
+    });
+  if (!claimedExecution || execution.status !== "IN_PROGRESS") {
+    return {
+      status: "SKIPPED",
+      reason: "This resolution is already being executed or has finished.",
+    };
+  }
 
   try {
     // ── Drift check ──────────────────────────────────────────
@@ -146,7 +172,12 @@ export async function executeResolution(params: {
     }
 
     // ── Mutate ───────────────────────────────────────────────
-    const receipt = await runAction(params.admin, actionType, orderId, proposedInput);
+    const receipt = await runAction(
+      params.admin,
+      actionType,
+      orderId,
+      proposedInput,
+    );
 
     const afterOrder = await fetchOrderContext(params.admin, orderId);
     const afterSnapshot = buildOrderSnapshot(afterOrder);
@@ -157,8 +188,8 @@ export async function executeResolution(params: {
         status: receipt.success ? "COMPLETED" : "FAILED",
         completedAt: new Date(),
         shopifyMutation: actionType,
-        responseJson: JSON.stringify(receipt.after ?? null),
-        userErrorsJson: JSON.stringify(receipt.userErrors),
+        responseJson: encrypt(JSON.stringify(receipt.after ?? null)),
+        userErrorsJson: encrypt(JSON.stringify(receipt.userErrors)),
         afterStateJson: JSON.stringify(afterSnapshot),
       },
     });
@@ -208,8 +239,8 @@ export async function executeResolution(params: {
       actorType: "merchant",
       actorId: params.actorId,
       action: "resolution.executed",
-      resourceType: "shopify_order",
-      resourceId: orderId,
+      resourceType: "resolution_proposal",
+      resourceId: proposal.id,
       beforeHash: sha256Hash(JSON.stringify(liveSnapshot)),
       afterHash: sha256Hash(JSON.stringify(afterSnapshot)),
       metadata: { actionType, idempotencyKey: receipt.idempotencyKey },
@@ -217,14 +248,16 @@ export async function executeResolution(params: {
 
     return { status: "EXECUTED", receipt };
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = String(
+      sanitizeTelemetry(error instanceof Error ? error.message : String(error)),
+    );
 
     await prisma.resolutionExecution.update({
       where: { id: execution.id },
       data: {
         status: "FAILED",
         completedAt: new Date(),
-        userErrorsJson: JSON.stringify([{ message }]),
+        userErrorsJson: encrypt(JSON.stringify([{ message }])),
       },
     });
     await prisma.supportCase.update({
@@ -279,7 +312,10 @@ async function runAction(
       return cancelOrder(
         admin,
         orderId,
-        String(input.summary ?? "Cancelled at the customer's request on a verified call."),
+        String(
+          input.summary ??
+            "Cancelled at the customer's request on a verified call.",
+        ),
       );
 
     case "ADD_NOTE":
@@ -294,7 +330,7 @@ async function runAction(
       return addOrderNote(
         admin,
         orderId,
-        `CallmeMaybe: customer requested ${actionType.replace(/_/g, " ").toLowerCase()} on a verified call. ${String(input.summary ?? "")}`,
+        `CallMeMaybe: customer requested ${actionType.replace(/_/g, " ").toLowerCase()} on a verified call. ${String(input.summary ?? "")}`,
       );
 
     default:
@@ -315,9 +351,11 @@ function buildOrderNote(
     const ref = input.trace_reference || "no reference provided";
     const disposition = input.carrier_disposition || "unknown";
     const promised = input.promised_response_by || "no ETA given";
-    const hold = input.hold_time_minutes ? `${input.hold_time_minutes} min hold` : "";
+    const hold = input.hold_time_minutes
+      ? `${input.hold_time_minutes} min hold`
+      : "";
     return [
-      `📞 CallmeMaybe carrier trace`,
+      `📞 CallMeMaybe carrier trace`,
       `Trace: ${ref}`,
       `Status: ${disposition}`,
       `Expected: ${promised}`,
@@ -327,7 +365,7 @@ function buildOrderNote(
       .filter(Boolean)
       .join(" | ");
   }
-  return String(input.summary ?? "CallmeMaybe note.");
+  return String(input.summary ?? "CallMeMaybe note.");
 }
 
 async function markCaseResolved(

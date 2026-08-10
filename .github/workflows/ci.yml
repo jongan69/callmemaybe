@@ -11,21 +11,71 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: callmemaybe
+          POSTGRES_PASSWORD: callmemaybe-ci
+          POSTGRES_DB: callmemaybe_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U callmemaybe -d callmemaybe_ci"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     env:
-      DATABASE_URL: file:./ci.sqlite
+      NODE_ENV: test
+      DATABASE_URL: postgresql://callmemaybe:callmemaybe-ci@localhost:5432/callmemaybe_ci?schema=public
       SHOPIFY_API_KEY: ci-placeholder
       SHOPIFY_API_SECRET: ci-placeholder
       SHOPIFY_APP_URL: https://example.test
-      SCOPES: read_orders,write_orders,read_customers,read_legal_policies
+      SCOPES: read_orders,write_orders,read_legal_policies
       APP_ENCRYPTION_KEY: 0000000000000000000000000000000000000000000000000000000000000000
-      HASH_PEPPER: ci-only-pepper
+      APP_ENCRYPTION_KEY_VERSION: "1"
+      APP_PREVIOUS_ENCRYPTION_KEYS_JSON: "{}"
+      HASH_PEPPER: ci-only-pepper-with-at-least-thirty-two-characters
+      DEMO_SEED: "false"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
         with:
           node-version-file: .nvmrc
           cache: npm
       - run: npm ci
       - run: npm run setup
-      - run: npm run check
+      - run: npm run ci:verify
+
+  secret-history:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - name: Scan complete Git history with Gitleaks
+        run: >-
+          docker run --rm -v "$PWD:/repo" ghcr.io/gitleaks/gitleaks:v8.28.0
+          detect --source=/repo --no-banner --redact --verbose
+
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - name: Build production image
+        run: docker build --tag callmemaybe:${{ github.sha }} .
+      - name: Scan production image
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: callmemaybe:${{ github.sha }}
+          format: table
+          exit-code: "1"
+          ignore-unfixed: true
+          severity: HIGH,CRITICAL
+          # License classifications use policy severities and are not
+          # vulnerability findings. Keep the blocking release gate focused on
+          # exploitable risk and leaked credentials/configuration.
+          scanners: vuln,secret,misconfig

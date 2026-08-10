@@ -1,5 +1,6 @@
 import prisma from "../db.server";
 import type {
+  CallOutcome,
   IssueType,
   SupportCaseStatus,
   OrderSnapshot,
@@ -9,14 +10,26 @@ import {
   generateVerificationCode,
   hashVerificationCode,
   generateIdempotencyKey,
+  generateSecretToken,
+  hashSecret,
   sha256Hash,
   encrypt,
   decrypt,
   hashForMatching,
   lastFour,
-  redactTranscript,
 } from "../lib/crypto.server";
-import { getPhoneProvider } from "../providers/index.server";
+import {
+  getPhoneProvider,
+  getProviderMode,
+  isFakeMode,
+} from "../providers/index.server";
+import { assertCallEligible } from "./call-eligibility.server";
+import {
+  BILLING_PLAN,
+  getBillingCycle,
+  recordCompletedCallUsage,
+} from "./billing.server";
+import { revokeCallConsent, suppressPhone } from "./consent.server";
 import { getPolicyForIssue, evaluatePolicy } from "./policy.server";
 import { createAuditEvent } from "./audit.server";
 import { ErrorCodes, createError } from "../lib/errors.server";
@@ -27,10 +40,7 @@ import {
   getResultSchema,
   validateCallResult,
 } from "../lib/call-plan";
-import type {
-  CarrierCallContext,
-  StuckOrderContext,
-} from "../lib/call-plan";
+import type { CarrierCallContext, StuckOrderContext } from "../lib/call-plan";
 
 export {
   buildTaskTemplate,
@@ -52,24 +62,40 @@ export async function createSupportCase(params: {
   issueType: IssueType;
   customerPhone: string;
   customerName?: string;
-  customerEmail?: string;
+  consentId?: string;
   orderSnapshot: OrderSnapshot;
   ipHash?: string;
   userAgent?: string;
+  requestedBy?: { type: "customer" | "merchant"; id: string };
 }): Promise<{
   caseId: string;
   publicReference: string;
   verificationCode: string;
   expiresAt: string;
 }> {
+  if (params.issueType !== "CARRIER_TRACE" && !params.consentId) {
+    throw createError(
+      ErrorCodes.CONSENT_REQUIRED,
+      "Customer call case creation requires an existing consent record",
+      "The customer must consent to calls for this order before outreach can begin.",
+    );
+  }
+
   // Check for duplicate open cases
   const existing = await prisma.supportCase.findFirst({
     where: {
       shopId: params.shopId,
+      consentId: params.consentId,
       shopifyOrderId: params.shopifyOrderId,
       issueType: params.issueType,
       status: {
-        notIn: ["RESOLVED", "CANCELED", "CLOSED", "FAILED", "CALL_NOT_COMPLETED"],
+        notIn: [
+          "RESOLVED",
+          "CANCELED",
+          "CLOSED",
+          "FAILED",
+          "CALL_NOT_COMPLETED",
+        ],
       },
     },
   });
@@ -121,62 +147,53 @@ export async function createSupportCase(params: {
     data: {
       publicReference: publicRef,
       shopId: params.shopId,
+      consentId: params.consentId,
       shopifyOrderId: params.shopifyOrderId,
       shopifyOrderName: params.shopifyOrderName,
       shopifyCustomerId: params.shopifyCustomerId,
       issueType: params.issueType,
       status: "REQUESTED",
+      requestExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
       customerNameEncrypted: params.customerName
         ? encrypt(params.customerName)
-        : null,
-      customerEmailEncrypted: params.customerEmail
-        ? encrypt(params.customerEmail)
         : null,
       customerPhoneEncrypted: encrypt(params.customerPhone),
       customerPhoneHash: phoneHash,
       customerPhoneLastFour: lastFour(params.customerPhone),
       orderSnapshotJson: JSON.stringify(params.orderSnapshot),
       orderSnapshotHash: sha256Hash(JSON.stringify(params.orderSnapshot)),
-      consent: {
-        create: {
-          consentTextVersion: "1.0",
-          consentText:
-            "I am requesting an automated AI support call about this order. I understand the call may be transcribed or recorded as described by the store.",
-          phoneHash,
-          customerId: params.shopifyCustomerId,
-          orderId: params.shopifyOrderId,
-          ipHash: params.ipHash,
-          userAgentSummary: params.userAgent,
-        },
-      },
-      verificationChallenge: {
-        create: {
-          codeHash,
-          expiresAt,
-          maxAttempts: 2,
-        },
-      },
+      ...(params.issueType !== "CARRIER_TRACE"
+        ? {
+            verificationChallenge: {
+              create: {
+                codeHash,
+                codeEncrypted: encrypt(code),
+                expiresAt,
+                maxAttempts: 2,
+              },
+            },
+          }
+        : {}),
     },
   });
 
   await createAuditEvent({
     shopId: params.shopId,
     supportCaseId: supportCase.id,
-    actorType: "customer",
-    actorId: params.shopifyCustomerId,
+    actorType: params.requestedBy?.type ?? "customer",
+    actorId: params.requestedBy?.id ?? params.shopifyCustomerId,
     action: "case.created",
     resourceType: "support_case",
     resourceId: supportCase.id,
     metadata: {
       issueType: params.issueType,
-      orderId: params.shopifyOrderId,
     },
   });
 
   return {
     caseId: supportCase.id,
     publicReference: publicRef,
-    verificationCode: code,
+    verificationCode: params.issueType === "CARRIER_TRACE" ? "" : code,
     expiresAt: expiresAt.toISOString(),
   };
 }
@@ -195,6 +212,7 @@ export async function buildCallPlan(params: {
   verificationCode: string;
   orderSnapshot: OrderSnapshot;
   orderName?: string;
+  merchantApprovedBy?: string;
   // Present only for third-party legs. When set, this plan dials the carrier or
   // supplier instead of the customer phone stored on the case.
   carrier?: CarrierCallContext;
@@ -217,7 +235,10 @@ export async function buildCallPlan(params: {
     1,
   );
 
-  const taskText = await buildTaskTextForIssue(params, policy.customInstructions ?? "");
+  const taskText = await buildTaskTextForIssue(
+    params,
+    policy.customInstructions ?? "",
+  );
   const resultSchema = getResultSchema(params.issueType);
 
   const metadata = {
@@ -249,6 +270,9 @@ export async function buildCallPlan(params: {
         ? encrypt(params.carrier.supportPhone)
         : null,
       recipientLabel: params.carrier?.carrierName ?? null,
+      approvedBy: params.carrier ? (params.merchantApprovedBy ?? null) : null,
+      approvedAt:
+        params.carrier && params.merchantApprovedBy ? new Date() : null,
     },
   });
 
@@ -266,13 +290,12 @@ export async function buildCallPlan(params: {
 // told why it is happening before anything else. Dispatching here keeps that
 // choice in one place.
 //
-// When an LLM is configured, richer context-aware instructions are generated
-// dynamically. Falls back to the static templates on any failure.
 async function buildTaskTextForIssue(
   params: {
     agentName: string;
     storeName: string;
     issueType: IssueType;
+    locale: string;
     verificationCode: string;
     orderSnapshot: OrderSnapshot;
     orderName?: string;
@@ -281,10 +304,6 @@ async function buildTaskTextForIssue(
   },
   policyInstructions: string,
 ): Promise<string> {
-  // Try LLM-generated instructions first.
-  const { generateCarrierTaskText, generateCustomerTaskText, llmAvailable } =
-    await import("./llm.server");
-
   if (params.issueType === "CARRIER_TRACE") {
     if (!params.carrier) {
       throw createError(
@@ -295,27 +314,10 @@ async function buildTaskTextForIssue(
       );
     }
 
-    if (llmAvailable()) {
-      const generated = await generateCarrierTaskText({
-        agentName: params.agentName,
-        storeName: params.storeName,
-        carrierName: params.carrier.carrierName,
-        trackingNumber: params.carrier.trackingNumber,
-        shipDate: params.carrier.shipDate,
-        deliveryClaimDate: params.carrier.deliveryClaimDate,
-        shipToSummary: params.carrier.shipToSummary,
-        merchantAccountNumber: params.carrier.merchantAccountNumber,
-        policyInstructions,
-        orderContext: params.orderSnapshot
-          ? `Order ${params.orderName ?? params.orderSnapshot.orderId}, status: ${params.orderSnapshot.fulfillmentStatus}`
-          : undefined,
-      });
-      if (generated) return generated;
-    }
-
     return buildCarrierTraceTask({
       agentName: params.agentName,
       storeName: params.storeName,
+      locale: params.locale,
       policyInstructions,
       ...params.carrier,
     });
@@ -331,21 +333,10 @@ async function buildTaskTextForIssue(
       );
     }
 
-    if (llmAvailable()) {
-      const generated = await generateCustomerTaskText({
-        agentName: params.agentName,
-        storeName: params.storeName,
-        issueType: params.issueType,
-        orderName: params.orderName ?? params.orderSnapshot.orderId,
-        orderContext: params.stuckOrder.blockerDescription,
-        policyInstructions,
-      });
-      if (generated) return generated;
-    }
-
     return buildStuckOrderOutreachTask({
       agentName: params.agentName,
       storeName: params.storeName,
+      locale: params.locale,
       verificationCode: params.verificationCode,
       orderSnapshot: params.orderSnapshot,
       orderName: params.orderName ?? params.orderSnapshot.orderId,
@@ -354,23 +345,11 @@ async function buildTaskTextForIssue(
     });
   }
 
-  // Customer-initiated calls (ADDRESS_CHANGE, CANCELLATION, etc.)
-  if (llmAvailable()) {
-    const generated = await generateCustomerTaskText({
-      agentName: params.agentName,
-      storeName: params.storeName,
-      issueType: params.issueType,
-      orderName: params.orderName ?? params.orderSnapshot.orderId,
-      orderContext: `Issue: ${params.issueType}. Order status: ${params.orderSnapshot.fulfillmentStatus}.`,
-      policyInstructions,
-      verificationCode: params.verificationCode,
-    });
-    if (generated) return generated;
-  }
-
+  // Customer-initiated calls (ADDRESS_CHANGE, CANCELLATION, etc.).
   return buildTaskTemplate({
     agentName: params.agentName,
     storeName: params.storeName,
+    locale: params.locale,
     issueType: params.issueType,
     verificationCode: params.verificationCode,
     orderSnapshot: params.orderSnapshot,
@@ -399,7 +378,7 @@ export async function submitCall(params: {
     },
   });
 
-  if (!supportCase) {
+  if (!supportCase || supportCase.shopId !== params.shopId) {
     throw createError(
       ErrorCodes.CASE_NOT_FOUND,
       `Case not found`,
@@ -416,6 +395,23 @@ export async function submitCall(params: {
     );
   }
 
+  const existingAttempt = await prisma.callAttempt.findUnique({
+    where: { callPlanId: callPlan.id },
+  });
+  if (existingAttempt?.providerCallId) {
+    return {
+      callAttemptId: existingAttempt.id,
+      providerCallId: existingAttempt.providerCallId,
+      status: existingAttempt.status,
+    };
+  }
+
+  await assertCallEligible({
+    shopId: params.shopId,
+    supportCaseId: params.supportCaseId,
+    callPlanId: params.callPlanId,
+  });
+
   // Verify code hasn't expired and is still valid
   const challenge = supportCase.verificationChallenge;
   if (challenge && new Date() > challenge.expiresAt) {
@@ -428,14 +424,80 @@ export async function submitCall(params: {
 
   const provider = getPhoneProvider();
 
-  const callAttempt = await prisma.callAttempt.create({
-    data: {
-      supportCaseId: params.supportCaseId,
-      callPlanId: params.callPlanId,
-      attemptNumber: 1,
-      provider: process.env.CALL_PROVIDER || "fake",
-      status: "PENDING",
-    },
+  const callbackNonce = generateSecretToken();
+  const cycle = await getBillingCycle(params.shopId);
+  const callAttempt = await prisma.$transaction(async (tx) => {
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${params.shopId}))`;
+    const [priorAttempts, activeCalls, completedCalls, lockedSettings] =
+      await Promise.all([
+        tx.callAttempt.count({
+          where: {
+            supportCaseId: params.supportCaseId,
+            providerCallId: { not: null },
+          },
+        }),
+        tx.callAttempt.count({
+          where: {
+            supportCase: { shopId: params.shopId },
+            status: {
+              in: [
+                "PENDING",
+                "QUEUED",
+                "INITIATED",
+                "RINGING",
+                "IN_PROGRESS",
+                "CALLING",
+              ],
+            },
+          },
+        }),
+        tx.usageLedger.count({
+          where: {
+            shopId: params.shopId,
+            usageType: "COMPLETED_CALL",
+            reversedAt: null,
+            occurredAt: { gte: cycle.start, lt: cycle.end },
+          },
+        }),
+        tx.shopSettings.findUnique({
+          where: { id: params.shopId },
+          select: { maxConcurrentCalls: true },
+        }),
+      ]);
+    if (activeCalls >= (lockedSettings?.maxConcurrentCalls ?? 5)) {
+      throw createError(
+        ErrorCodes.RATE_LIMITED,
+        "Shop call concurrency limit reached",
+        "The call will remain queued until another call finishes.",
+        { retryable: true },
+      );
+    }
+    if (completedCalls + activeCalls >= BILLING_PLAN.maximumCallsPerCycle) {
+      throw createError(
+        ErrorCodes.POLICY_BLOCKED,
+        "Monthly completed-call ceiling is fully reserved",
+        "The monthly usage ceiling has been reached.",
+      );
+    }
+    return tx.callAttempt.upsert({
+      where: { callPlanId: params.callPlanId },
+      create: {
+        supportCaseId: params.supportCaseId,
+        callPlanId: params.callPlanId,
+        attemptNumber: priorAttempts + 1,
+        provider: getProviderMode(),
+        callbackNonceHash: hashSecret(callbackNonce),
+        callbackExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        status: "PENDING",
+      },
+      update: {
+        callbackNonceHash: hashSecret(callbackNonce),
+        callbackExpiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        status: "PENDING",
+        errorCode: null,
+        errorMessage: null,
+      },
+    });
   });
 
   // Update case status
@@ -466,11 +528,24 @@ export async function submitCall(params: {
 
     const recipientPhone = decrypt(encryptedRecipient);
     const taskText = decrypt(callPlan.taskTextEncrypted);
+    await createAuditEvent({
+      shopId: params.shopId,
+      supportCaseId: params.supportCaseId,
+      actorType: "system",
+      action: "protected_data.decrypted_for_call",
+      resourceType: "call_plan",
+      resourceId: callPlan.id,
+      metadata: {
+        fields: ["recipient_phone", "call_task"],
+        purpose: "authorized_call_placement",
+      },
+    });
     const planMetadata = JSON.parse(callPlan.metadataJson) as Record<
       string,
       unknown
     >;
 
+    const webhookUrl = buildWebhookUrl(callAttempt.id, callbackNonce);
     const result = await provider.createCall({
       recipientPhone,
       region: (planMetadata.region as string) ?? "US",
@@ -479,7 +554,7 @@ export async function submitCall(params: {
       taskText,
       resultSchema: JSON.parse(callPlan.resultSchemaJson),
       metadata: planMetadata,
-      ...(buildWebhookUrl() ? { webhookUrl: buildWebhookUrl() } : {}),
+      ...(webhookUrl ? { webhookUrl } : {}),
     });
 
     // Update call attempt with provider info
@@ -498,10 +573,14 @@ export async function submitCall(params: {
     });
 
     // In fake mode, immediately process the result
-    if (process.env.CALL_PROVIDER !== "calle") {
+    if (isFakeMode()) {
       // Small delay to simulate call
       await new Promise((resolve) => setTimeout(resolve, 1000));
-      await processCallResult(callAttempt.id, params.supportCaseId, params.shopId);
+      await processCallResult(
+        callAttempt.id,
+        params.supportCaseId,
+        params.shopId,
+      );
     }
 
     return {
@@ -515,7 +594,7 @@ export async function submitCall(params: {
       data: {
         status: "FAILED",
         errorCode: "CALL_CREATE_FAILED",
-        errorMessage: error instanceof Error ? error.message : "Unknown error",
+        errorMessage: "The call provider could not place the call.",
       },
     });
 
@@ -532,10 +611,20 @@ export async function processCallResult(
 ): Promise<void> {
   const callAttempt = await prisma.callAttempt.findUnique({
     where: { id: callAttemptId },
-    include: { callPlan: true },
+    include: {
+      callPlan: true,
+      supportCase: { select: { shopId: true } },
+    },
   });
 
-  if (!callAttempt || !callAttempt.providerCallId) return;
+  if (
+    !callAttempt ||
+    callAttempt.supportCaseId !== supportCaseId ||
+    callAttempt.supportCase.shopId !== shopId ||
+    !callAttempt.providerCallId ||
+    callAttempt.resultProcessedAt
+  )
+    return;
 
   const provider = getPhoneProvider();
   await prisma.supportCase.update({
@@ -545,17 +634,6 @@ export async function processCallResult(
 
   const normalizedCall = await provider.getCall(callAttempt.providerCallId);
   const structuredResult = normalizedCall.structuredResult ?? {};
-  const transcriptSensitiveValues = [
-    normalizedCall.recipientPhone,
-    structuredResult.address_line_1,
-    structuredResult.address_line_2,
-    structuredResult.city,
-    structuredResult.province_or_state,
-    structuredResult.postal_code,
-    structuredResult.recipient_name,
-    structuredResult.phone,
-  ].filter((value): value is string => typeof value === "string");
-
   // Update call attempt
   await prisma.callAttempt.update({
     where: { id: callAttemptId },
@@ -566,22 +644,119 @@ export async function processCallResult(
       completionConfidenceScore: normalizedCall.completionConfidenceScore,
       completionConfidenceLabel: normalizedCall.completionConfidenceLabel,
       structuredResultJson: normalizedCall.structuredResult
-        ? JSON.stringify(normalizedCall.structuredResult)
+        ? encrypt(JSON.stringify(normalizedCall.structuredResult))
         : null,
-      summary: normalizedCall.summary,
-      transcriptEncrypted: normalizedCall.transcript
-        ? encrypt(normalizedCall.transcript)
-        : null,
-      transcriptRedacted: normalizedCall.transcript
-        ? redactTranscript(normalizedCall.transcript, transcriptSensitiveValues)
-        : null,
-      evidenceJson: normalizedCall.evidence
-        ? JSON.stringify(normalizedCall.evidence)
+      // Provider summaries are free-form and may repeat protected order data.
+      // Persist only a controlled, non-PII outcome label; the approved
+      // structured fields remain encrypted for the merchant review workflow.
+      summary: safeOutcomeSummary(normalizedCall.outcome),
+      evidenceJson: null,
+      connectedAt: normalizedCall.connectedAt
+        ? new Date(normalizedCall.connectedAt)
         : null,
       completedAt: normalizedCall.completedAt
         ? new Date(normalizedCall.completedAt)
         : null,
     },
+  });
+
+  const disposition = String(structuredResult.disposition ?? "").toLowerCase();
+  const optedOut =
+    structuredResult.opt_out === true ||
+    ["stop_calling", "do_not_call", "opt_out"].includes(disposition);
+  if (optedOut && normalizedCall.recipientPhone) {
+    await suppressPhone({
+      shopId,
+      phone: normalizedCall.recipientPhone,
+      reason: "spoken_opt_out",
+      source: "call_result",
+    });
+    const supportCaseForConsent = await prisma.supportCase.findUnique({
+      where: { id: supportCaseId },
+      select: { shopifyOrderId: true, shopifyCustomerId: true },
+    });
+    if (supportCaseForConsent) {
+      await revokeCallConsent({
+        shopId,
+        shopifyOrderId: supportCaseForConsent.shopifyOrderId,
+        shopifyCustomerId: supportCaseForConsent.shopifyCustomerId,
+        reason: "spoken_opt_out",
+        suppressPhone: true,
+      });
+    }
+  }
+
+  const terminalStatuses = new Set([
+    "COMPLETED",
+    "FAILED",
+    "CANCELED",
+    "NO_ANSWER",
+    "BUSY",
+  ]);
+  if (!terminalStatuses.has(normalizedCall.status)) {
+    await prisma.supportCase.update({
+      where: { id: supportCaseId },
+      data: { status: "CALLING" },
+    });
+    return;
+  }
+
+  if (
+    normalizedCall.status !== "COMPLETED" ||
+    normalizedCall.outcome !== "COMPLETED"
+  ) {
+    await prisma.supportCase.update({
+      where: { id: supportCaseId },
+      data: { status: "CALL_NOT_COMPLETED" },
+    });
+    await createAuditEvent({
+      shopId,
+      supportCaseId,
+      actorType: "system",
+      action: "case.call_not_completed",
+      resourceType: "call_attempt",
+      resourceId: callAttemptId,
+      metadata: {
+        status: normalizedCall.status,
+        outcome: normalizedCall.outcome,
+      },
+    });
+    await prisma.callAttempt.update({
+      where: { id: callAttemptId },
+      data: { resultProcessedAt: new Date() },
+    });
+    return;
+  }
+
+  if (!normalizedCall.completedAt) {
+    await prisma.supportCase.update({
+      where: { id: supportCaseId },
+      data: { status: "NEEDS_HUMAN" },
+    });
+    await createAuditEvent({
+      shopId,
+      supportCaseId,
+      actorType: "system",
+      action: "case.completed_call_missing_terminal_time",
+      resourceType: "call_attempt",
+      resourceId: callAttemptId,
+    });
+    await prisma.callAttempt.update({
+      where: { id: callAttemptId },
+      data: {
+        outcome: "UNKNOWN",
+        errorCode: "PROVIDER_TERMINAL_TIME_MISSING",
+        resultProcessedAt: new Date(),
+      },
+    });
+    return;
+  }
+
+  await recordCompletedCallUsage({
+    shopId,
+    supportCaseId,
+    callAttemptId,
+    completedAt: new Date(normalizedCall.completedAt),
   });
 
   // Store events. CALL-E does not embed events in the call object, they come
@@ -604,8 +779,11 @@ export async function processCallResult(
             eventType: event.eventType,
             eventTime: new Date(event.eventTime),
             sequence: event.sequence,
-            sanitizedPayloadJson: JSON.stringify(event.payload),
-            payloadHash: sha256Hash(JSON.stringify(event.payload)),
+            sanitizedPayloadJson: JSON.stringify({
+              level: event.payload.level,
+              status: event.payload.status,
+            }),
+            payloadHash: hashForMatching(JSON.stringify(event.payload)),
           },
         })
         .catch(() => {
@@ -620,26 +798,43 @@ export async function processCallResult(
   });
   if (!supportCase || !supportCase.orderSnapshotJson) return;
 
-  const orderSnapshot: OrderSnapshot = JSON.parse(supportCase.orderSnapshotJson);
+  const identityVerified = await consumeVerificationOutcome({
+    callAttemptId,
+    supportCaseId,
+    recipientKind: callAttempt.callPlan.recipientKind,
+    identityStatus: String(structuredResult.identity_status ?? "unknown"),
+  });
+
+  const orderSnapshot: OrderSnapshot = JSON.parse(
+    supportCase.orderSnapshotJson,
+  );
   // Evaluate policy
-  const policy = await getPolicyForIssue(shopId, supportCase.issueType as IssueType);
+  const policy = await getPolicyForIssue(
+    shopId,
+    supportCase.issueType as IssueType,
+  );
   const settings = await prisma.shopSettings.findUnique({
     where: { id: shopId },
     select: { confidenceThreshold: true },
   });
-  const decision = evaluatePolicy(policy, orderSnapshot, {
-    identityVerified:
-      (structuredResult.identity_status as string) === "verified",
-    schemaValid: validateCallResult(supportCase.issueType, structuredResult),
-    completionConfidence: normalizedCall.completionConfidenceScore ?? 0,
-    requestedAction: (structuredResult.requested_action as string) ?? "none",
-    disposition: (structuredResult.disposition as string) ?? "unknown",
-    hasTranscriptContradiction: false,
-  }, settings?.confidenceThreshold ?? 0.85);
+  const decision = evaluatePolicy(
+    policy,
+    orderSnapshot,
+    {
+      identityVerified,
+      schemaValid: validateCallResult(supportCase.issueType, structuredResult),
+      completionConfidence: normalizedCall.completionConfidenceScore ?? 0,
+      requestedAction: (structuredResult.requested_action as string) ?? "none",
+      disposition: (structuredResult.disposition as string) ?? "unknown",
+      hasTranscriptContradiction: false,
+    },
+    settings?.confidenceThreshold ?? 0.85,
+  );
 
   // Create resolution proposal
-  const proposal = await prisma.resolutionProposal.create({
-    data: {
+  const proposal = await prisma.resolutionProposal.upsert({
+    where: { callAttemptId: callAttempt.id },
+    create: {
       supportCaseId,
       callAttemptId: callAttempt.id,
       actionType: decision.actionType,
@@ -650,10 +845,11 @@ export async function processCallResult(
         : "FAILED",
       riskLevel: decision.riskLevel,
       policyDecisionJson: JSON.stringify(decision),
-      proposedInputJson: JSON.stringify(structuredResult),
+      proposedInputJson: encrypt(JSON.stringify(structuredResult)),
       beforeStateJson: JSON.stringify(orderSnapshot),
       requiresApproval: decision.mode !== "AUTOMATIC" || !decision.eligible,
     },
+    update: {},
   });
 
   // Update case status
@@ -692,20 +888,107 @@ export async function processCallResult(
       proposalId: proposal.id,
     },
   });
+  await prisma.callAttempt.update({
+    where: { id: callAttemptId },
+    data: { resultProcessedAt: new Date() },
+  });
+}
+
+function safeOutcomeSummary(outcome: CallOutcome): string {
+  switch (outcome) {
+    case "COMPLETED":
+      return "Call completed; review the structured result.";
+    case "ANSWERED":
+      return "Call answered but the requested task was not fully completed.";
+    case "DECLINED":
+      return "The recipient declined the requested call workflow.";
+    case "WRONG_PERSON":
+      return "The call reached the wrong person.";
+    case "VERIFICATION_FAILED":
+      return "Identity verification was not completed.";
+    case "VOICEMAIL":
+      return "The call reached voicemail.";
+    case "NO_ANSWER":
+      return "The call was not answered.";
+    case "FAILED":
+      return "The provider could not complete the call.";
+    default:
+      return "The call outcome is pending reconciliation.";
+  }
 }
 
 // ─── Helpers ─────────────────────────────────────────────────
 
+async function consumeVerificationOutcome(params: {
+  callAttemptId: string;
+  supportCaseId: string;
+  recipientKind: string;
+  identityStatus: string;
+}): Promise<boolean> {
+  if (params.recipientKind === "THIRD_PARTY") return true;
+  return prisma.$transaction(async (tx) => {
+    const challenge = await tx.verificationChallenge.findUnique({
+      where: { supportCaseId: params.supportCaseId },
+    });
+    if (!challenge) return false;
+    if (challenge.verifiedCallAttemptId === params.callAttemptId) return true;
+    const now = new Date();
+    if (
+      challenge.expiresAt <= now ||
+      challenge.invalidatedAt ||
+      challenge.verifiedAt
+    )
+      return false;
+    if (params.identityStatus === "verified") {
+      const consumed = await tx.verificationChallenge.updateMany({
+        where: {
+          id: challenge.id,
+          verifiedAt: null,
+          invalidatedAt: null,
+          expiresAt: { gt: now },
+        },
+        data: { verifiedAt: now, verifiedCallAttemptId: params.callAttemptId },
+      });
+      return consumed.count === 1;
+    }
+    if (
+      ["incorrect_code", "verification_failed"].includes(params.identityStatus)
+    ) {
+      const attemptsUsed = challenge.attemptsUsed + 1;
+      await tx.verificationChallenge.update({
+        where: { id: challenge.id },
+        data: {
+          attemptsUsed,
+          invalidatedAt: attemptsUsed >= challenge.maxAttempts ? now : null,
+        },
+      });
+    }
+    return false;
+  });
+}
+
 // CALL-E posts terminal call events to this per-request URL. Deliveries are
 // unsigned, so the unguessable token in the path is what authenticates them,
 // alongside the canonical re-fetch the provider performs.
-function buildWebhookUrl(): string | undefined {
+function buildWebhookUrl(
+  callAttemptId: string,
+  nonce: string,
+): string | undefined {
   const appUrl = process.env.SHOPIFY_APP_URL;
   const token = process.env.CALLE_WEBHOOK_TOKEN;
-  if (!appUrl || !token) return undefined;
-  return `${appUrl.replace(/\/$/, "")}/webhooks/calle/${token}`;
+  if (!appUrl || !token) {
+    if (getProviderMode() === "calle") {
+      throw new Error(
+        "Live CALL-E calls require SHOPIFY_APP_URL and CALLE_WEBHOOK_TOKEN",
+      );
+    }
+    return undefined;
+  }
+  const url = new URL(`${appUrl.replace(/\/$/, "")}/webhooks/calle/${token}`);
+  url.searchParams.set("attempt", callAttemptId);
+  url.searchParams.set("nonce", nonce);
+  return url.toString();
 }
-
 
 // ─── Get Case ────────────────────────────────────────────────
 
@@ -729,6 +1012,7 @@ export async function getSupportCase(
         orderBy: { createdAt: "desc" },
         take: 1,
       },
+      verificationChallenge: true,
     },
   });
 
@@ -742,11 +1026,14 @@ export async function getSupportCase(
   };
 }
 
-export async function getCasesForShop(shopId: string, filters?: {
-  status?: string;
-  issueType?: string;
-  limit?: number;
-}) {
+export async function getCasesForShop(
+  shopId: string,
+  filters?: {
+    status?: string;
+    issueType?: string;
+    limit?: number;
+  },
+) {
   const where: Record<string, unknown> = { shopId };
   if (filters?.status) where.status = filters.status;
   if (filters?.issueType) where.issueType = filters.issueType;

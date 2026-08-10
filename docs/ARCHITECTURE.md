@@ -1,102 +1,75 @@
-# CallmeMaybe Architecture
+# Production architecture
 
-## Overview
-
-CallmeMaybe is a Shopify embedded application that gives merchants and
-authenticated customers AI-assisted phone workflows for orders. It uses CALL-E
-for phone conversations and Shopify Admin GraphQL 2026-07 for live context and
-merchant-approved mutations.
-
-## Architecture Diagram
+## Runtime topology
 
 ```mermaid
 flowchart LR
-    C[Authenticated Shopify Customer]
-    O[Merchant Outreach]
-    E[Customer Account Extension]
-    A[CallmeMaybe App Server]
-    D[(SQLite Database)]
-    P[Policy Engine]
-    CE[CALL-E Provider]
-    PH[Customer Phone]
-    CP[Carrier Phone]
-    W[Webhook Handler]
-    S[Shopify Admin GraphQL]
-    M[Merchant Dashboard]
-
-    C --> E
-    O --> A
-    E -->|Session token + order + consent| A
-    A --> D
-    A --> P
-    A -->|Task + schema + recipient| CE
-    CE --> PH
-    CE --> CP
-    CE --> W
-    W --> A
-    A --> P
-    P -->|Automatic or approval| S
-    A --> M
-    A --> E
+  A["Shopify Admin"] -->|"OAuth/session"| W["Render web"]
+  B["Customer account"] -->|"session token"| W
+  C["Order status"] -->|"session token"| W
+  S["Shopify webhooks"] -->|"authenticated"| W
+  E["CALL-E callbacks"] -->|"secret path + call nonce"| W
+  W --> P[("Managed PostgreSQL")]
+  W --> Q["pg-boss queues"]
+  Q --> K["Render worker"]
+  K --> EAPI["CALL-E API"]
+  K --> G["Shopify APIs"]
+  R["Render cron"] --> Q
+  W --> O["Sentry / JSON logs"]
+  K --> O
+  R --> U["Better Stack heartbeat"]
 ```
 
-## Key Design Decisions
+Development, staging, and production use separate Shopify apps, Render
+services, PostgreSQL databases, credentials, caller IDs, and authorized test
+numbers. SQLite prototype data is disposable and has no migration path.
 
-### 1. Bounded order context
-Calls start from an authenticated Shopify order context: a signed customer
-session or an authenticated merchant action. Before dialing, the server reads
-the live shop, customer, order, fulfillment, tracking, and policy context. The
-voice agent never looks up arbitrary Shopify resources.
+## Call state flow
 
-### 2. Conversation ≠ Authorization
-The policy engine, not the language model, decides whether Shopify mutations are safe. A call being "completed" is never sufficient to authorize an action. Every mutation requires verified identity, schema-valid results, merchant policy approval, and fresh Shopify state.
+```mermaid
+sequenceDiagram
+  participant Buyer
+  participant App
+  participant Queue
+  participant CALL-E
+  participant Merchant
+  participant Shopify
 
-### 3. Deterministic policy engine
-Per-issue policies use INFORMATIONAL, AUTOMATIC, APPROVAL, or DISABLED. Automatic
-is restricted to non-mutating information flows; every Shopify mutation is
-defensively forced through merchant approval.
+  Buyer->>App: Explicit per-order consent
+  Merchant->>App: Approve eligible customer/carrier call
+  App->>App: CallEligibilityService decision
+  App->>Queue: Idempotent placement job
+  Queue->>CALL-E: Place call with callback nonce
+  CALL-E-->>App: Terminal callback
+  App->>CALL-E: Canonical result refetch
+  App->>App: Normalize, suppress opt-outs, bill exact completion
+  App-->>Merchant: Redacted proposal
+  Merchant->>App: Explicit approve/reject
+  App->>Shopify: Fresh order read and drift comparison
+  App->>Shopify: Allowed mutation or note
+  App->>App: Encrypted receipt + audit event
+```
 
-### 4. Fake Provider as First-Class Component
-The fake CALL-E provider is not a test mock — it's a full implementation of the provider interface that powers development, testing, and demo mode without live credentials.
+No call route may bypass `CallEligibilityService`. Callback bodies are hints to
+reconcile, not trusted outcomes. A completed provider call is billed once by a
+unique call-attempt ledger key. A Shopify mutation is never authorized by an AI
+result.
 
-### 5. Idempotency Everywhere
-Call creation, Shopify mutations, and webhook processing all use deterministic idempotency keys to prevent duplicate operations in ambiguous states.
+## Data boundaries
 
-## Tech Stack
+| Data                    | Storage                 | Controls                                           |
+| ----------------------- | ----------------------- | -------------------------------------------------- |
+| Shopify sessions        | PostgreSQL              | Shopify session storage; tenant-scoped             |
+| Phone numbers           | Encrypted field         | AES-256-GCM; hash for matching; last four for UI   |
+| Call plans/results      | Encrypted field         | Decrypted only at placement/review boundary        |
+| Raw provider transcript | Not stored              | Transient normalization only                       |
+| Audio                   | Not stored              | Provider contract must enforce approved retention  |
+| Order snapshot          | Minimized JSON          | IDs/status/totals and hashes; no raw address       |
+| Consent/suppression     | Minimized evidence      | Version, purpose, hashes, timestamps, reason       |
+| Usage event             | PII-free ledger         | Permanent idempotency key and retry/reversal state |
+| Privacy export          | Encrypted field         | 30-day expiry and audited access                   |
+| Logs/Sentry             | Structured and redacted | Non-PII correlation identifiers only               |
 
-| Layer | Technology |
-|-------|-----------|
-| Framework | React Router v7 + @shopify/shopify-app-react-router |
-| Database | Prisma + SQLite |
-| UI | Polaris web components + App Bridge |
-| Phone | CALL-E (TypeScript SDK) |
-| Auth | Shopify session tokens + OAuth |
-| Local/review runtime | Shopify CLI tunnel or any Node 22 HTTPS host |
-
-## Data Flow
-
-1. A customer selects “Get support,” or a merchant starts outreach on a live order
-2. The server verifies Shopify identity and re-fetches the order/ownership context
-3. The server checks rate limits and creates a support case
-4. One-time verification code generated (6 digits, 15-min expiry)
-5. Call plan built with bounded order/policy snapshot
-6. CALL-E creates outbound call with structured result schema
-7. CALL-E verifies customer, conducts conversation, returns structured result
-8. A terminal webhook triggers a canonical CALL-E API re-fetch
-9. Policy engine evaluates: identity, schema validity, confidence, order state
-10. Resolution proposal created (automatic, approval, or escalation)
-11. For a mutation, the merchant approves and the app re-reads the complete
-    order snapshot; drift aborts, otherwise Shopify is updated
-12. Audit trail, case status, and customer view updated
-
-## Security Model
-
-- Customer data encrypted at rest (AES-256-GCM)
-- Phone/email hashed for deduplication
-- Verification codes hashed, never stored in plaintext
-- Shopify session tokens verified on every customer API call
-- CALL-E secrets never reach the browser
-- CALL-E webhooks are deduplicated and canonical results are re-fetched
-- Every Shopify mutation requires merchant approval
-- Merchant-visible transcripts are redacted; raw copies remain encrypted
-- Mandatory Shopify privacy webhooks export or erase complete customer/shop data
+See [PRIVACY_DATA_FLOW.md](PRIVACY_DATA_FLOW.md),
+[BILLING_RECONCILIATION.md](BILLING_RECONCILIATION.md), and
+[DEPLOYMENT_ROLLBACK.md](DEPLOYMENT_ROLLBACK.md).

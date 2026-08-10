@@ -65,7 +65,12 @@ describe("result schema contract", () => {
     // every policy check.
     for (const issueType of ALL_ISSUE_TYPES) {
       const props = propsOf(issueType);
-      for (const field of ["disposition", "identity_status", "requested_action", "summary"]) {
+      for (const field of [
+        "disposition",
+        "identity_status",
+        "requested_action",
+        "summary",
+      ]) {
         assert.ok(field in props, `${issueType} is missing ${field}`);
       }
     }
@@ -87,7 +92,11 @@ describe("result schema contract", () => {
   test("every enum offers an unknown-style escape hatch", () => {
     // CALL-E's guidance: include an unknown value wherever the call may not
     // produce enough evidence, otherwise extraction fails the whole result.
-    const exempt = new Set(["disposition", "identity_status", "requested_action"]);
+    const exempt = new Set([
+      "disposition",
+      "identity_status",
+      "requested_action",
+    ]);
     for (const issueType of ALL_ISSUE_TYPES) {
       for (const [name, prop] of Object.entries(propsOf(issueType))) {
         if (!Array.isArray(prop.enum) || exempt.has(name)) continue;
@@ -182,8 +191,13 @@ describe("CARRIER_TRACE schema", () => {
 
 describe("STUCK_ORDER_OUTREACH schema", () => {
   test("captures a single customer decision", () => {
-    const values = propsOf("STUCK_ORDER_OUTREACH").customer_decision.enum as string[];
-    for (const expected of ["provided_address", "cancel_order", "no_decision"]) {
+    const values = propsOf("STUCK_ORDER_OUTREACH").customer_decision
+      .enum as string[];
+    for (const expected of [
+      "provided_address",
+      "cancel_order",
+      "no_decision",
+    ]) {
       assert.ok(values.includes(expected), `missing ${expected}`);
     }
   });
@@ -198,6 +212,21 @@ describe("STUCK_ORDER_OUTREACH schema", () => {
 });
 
 describe("task templates", () => {
+  test("uses the selected localized disclosure and language instruction", () => {
+    const text = buildTaskTemplate({
+      agentName: "Riley",
+      storeName: "Northstar",
+      locale: "ar-AE",
+      issueType: "ORDER_STATUS",
+      verificationCode: "111111",
+      orderSnapshot: SNAPSHOT,
+      policyInstructions: "",
+    });
+    assert.match(text, /Conduct the entire call in Arabic/);
+    assert.match(text, /مرحبًا/);
+    assert.match(text, /script version 2\.0/);
+  });
+
   test("carrier task carries the tracking number into the IVR instructions", () => {
     const text = buildCarrierTraceTask({
       agentName: "Riley",
@@ -263,11 +292,14 @@ describe("task templates", () => {
 
     const whyIndex = text.indexOf("WHY THIS CALL IS HAPPENING");
     const verifyIndex = text.indexOf("VERIFICATION");
-    assert.ok(whyIndex > -1 && verifyIndex > whyIndex, "reason must come first");
+    assert.ok(
+      whyIndex > -1 && verifyIndex > whyIndex,
+      "reason must come first",
+    );
     assert.match(text, /#1051/);
     assert.match(text, /emailed the customer 2 time\(s\)/);
-    // Verification now uses name + order confirmation, not codes
-    assert.match(text, /confirm their name/);
+    assert.match(text, /expected code is 482910/i);
+    assert.match(text, /at most two attempts/i);
   });
 
   test("customer-facing templates gate disclosure using the right verification method", () => {
@@ -291,7 +323,8 @@ describe("task templates", () => {
     });
 
     assert.match(outreach, /Do not disclose order/i);
-    assert.match(outreach, /Do NOT ask for codes/i);
+    assert.match(outreach, /expected code is 111111/i);
+    assert.match(outreach, /at most two attempts/i);
     assert.match(standard, /Do not disclose order/i);
     assert.match(standard, /expected support code is 111111/i);
     assert.match(standard, /at most two attempts/i);
@@ -310,7 +343,9 @@ describe("policy matrix", () => {
   });
 
   test("carrier calls do not require customer identity verification", () => {
-    const policy = DEFAULT_POLICIES.find((p) => p.issueType === "CARRIER_TRACE");
+    const policy = DEFAULT_POLICIES.find(
+      (p) => p.issueType === "CARRIER_TRACE",
+    );
     assert.ok(policy);
     // There is no customer on the line, so requiring verification would make
     // every carrier call ineligible.
@@ -331,13 +366,19 @@ describe("policy matrix", () => {
   test("irreversible actions are never automatic by default", () => {
     for (const issueType of ["CANCELLATION", "RETURN", "CARRIER_TRACE"]) {
       const policy = DEFAULT_POLICIES.find((p) => p.issueType === issueType);
-      assert.notEqual(policy?.mode, "AUTOMATIC", `${issueType} must not be automatic`);
+      assert.notEqual(
+        policy?.mode,
+        "AUTOMATIC",
+        `${issueType} must not be automatic`,
+      );
     }
   });
 
   test("a misconfigured automatic mutation is downgraded to approval", () => {
     const policy = {
-      ...DEFAULT_POLICIES.find((candidate) => candidate.issueType === "CANCELLATION")!,
+      ...DEFAULT_POLICIES.find(
+        (candidate) => candidate.issueType === "CANCELLATION",
+      )!,
       mode: "AUTOMATIC" as const,
     };
 

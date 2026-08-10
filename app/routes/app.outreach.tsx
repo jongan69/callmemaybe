@@ -16,7 +16,6 @@ import prisma from "../db.server";
 import {
   createSupportCase,
   buildCallPlan,
-  submitCall,
 } from "../services/support-case.server";
 import {
   fetchOrderContext,
@@ -24,6 +23,12 @@ import {
 } from "../services/shopify-adapter.server";
 import type { AdminClient } from "../services/shopify-adapter.server";
 import type { IssueType } from "../lib/types";
+import {
+  findActiveCallConsent,
+  normalizePhone,
+} from "../services/consent.server";
+import { hashForMatching } from "../lib/crypto.server";
+import { enqueueJob, JOBS } from "../queue.server";
 
 // ── Types ──────────────────────────────────────────────────────
 
@@ -77,8 +82,6 @@ const RECENT_ORDERS_QUERY = `#graphql
             id
             firstName
             lastName
-            defaultEmailAddress { emailAddress }
-            defaultPhoneNumber { phoneNumber }
           }
           fulfillments(first: 5) {
             trackingInfo { company number }
@@ -89,7 +92,9 @@ const RECENT_ORDERS_QUERY = `#graphql
   }
 `;
 
-async function loadUnfulfilledOrders(admin: AdminClient): Promise<OutreachOrder[]> {
+async function loadUnfulfilledOrders(
+  admin: AdminClient,
+): Promise<OutreachOrder[]> {
   const resp = await admin.graphql(RECENT_ORDERS_QUERY, {
     variables: { first: 50 },
   });
@@ -101,35 +106,44 @@ async function loadUnfulfilledOrders(admin: AdminClient): Promise<OutreachOrder[
   return edges.map(({ node: o }) => {
     const customer = o.customer as Record<string, unknown> | undefined;
     const addr = o.shippingAddress as Record<string, unknown> | undefined;
-    const total = o.totalPriceSet as { shopMoney?: { amount?: string; currencyCode?: string } };
-    const fulfillments = (o.fulfillments as Array<{
-      trackingInfo?: Array<{ company?: string; number?: string }>;
-    }> | undefined) ?? [];
-    const tracking = fulfillments.flatMap((fulfillment) => fulfillment.trackingInfo ?? [])[0];
+    const total = o.totalPriceSet as {
+      shopMoney?: { amount?: string; currencyCode?: string };
+    };
+    const fulfillments =
+      (o.fulfillments as
+        | Array<{
+            trackingInfo?: Array<{ company?: string; number?: string }>;
+          }>
+        | undefined) ?? [];
+    const tracking = fulfillments.flatMap(
+      (fulfillment) => fulfillment.trackingInfo ?? [],
+    )[0];
     const amount = total?.shopMoney?.amount ?? "0";
     return {
       orderId: o.id as string,
       orderName: o.name as string,
-      fulfillmentStatus: (o.displayFulfillmentStatus as string) || "UNFULFILLED",
+      fulfillmentStatus:
+        (o.displayFulfillmentStatus as string) || "UNFULFILLED",
       financialStatus: (o.displayFinancialStatus as string) || "PENDING",
       customerId: (customer?.id as string) ?? "unknown",
-      customerName: [customer?.firstName, customer?.lastName].filter(Boolean).join(" ") || "Customer",
-      customerPhone:
-        (addr?.phone as string) ||
-        ((customer?.defaultPhoneNumber as { phoneNumber?: string } | undefined)?.phoneNumber) ||
-        "",
+      customerName:
+        [customer?.firstName, customer?.lastName].filter(Boolean).join(" ") ||
+        "Customer",
+      customerPhone: (addr?.phone as string) || "",
       createdAt: o.createdAt as string,
       totalMinor: Math.round(parseFloat(amount) * 100),
       currencyCode: total?.shopMoney?.currencyCode ?? "USD",
       carrierName: tracking?.company ?? "",
       trackingNumber: tracking?.number ?? "",
-      shippingAddress: addr ? {
-        address1: addr.address1 as string,
-        city: addr.city as string,
-        province: addr.province as string,
-        zip: addr.zip as string,
-        country: addr.countryCodeV2 as string,
-      } : undefined,
+      shippingAddress: addr
+        ? {
+            address1: addr.address1 as string,
+            city: addr.city as string,
+            province: addr.province as string,
+            zip: addr.zip as string,
+            country: addr.countryCodeV2 as string,
+          }
+        : undefined,
     };
   });
 }
@@ -157,7 +171,15 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const openCases = await prisma.supportCase.findMany({
     where: {
       shopId: settings.id,
-      status: { notIn: ["RESOLVED", "CANCELED", "CLOSED", "FAILED", "CALL_NOT_COMPLETED"] },
+      status: {
+        notIn: [
+          "RESOLVED",
+          "CANCELED",
+          "CLOSED",
+          "FAILED",
+          "CALL_NOT_COMPLETED",
+        ],
+      },
     },
     select: { shopifyOrderId: true },
   });
@@ -209,24 +231,75 @@ export const action = async ({ request }: ActionFunctionArgs) => {
   }
 
   const callsCarrier = leg === "carrier";
-  const issueType: IssueType = callsCarrier ? "CARRIER_TRACE" : "STUCK_ORDER_OUTREACH";
+  const issueType: IssueType = callsCarrier
+    ? "CARRIER_TRACE"
+    : "STUCK_ORDER_OUTREACH";
 
   // Read live order from Shopify.
   let orderContext;
   try {
     orderContext = await fetchOrderContext(admin, orderId);
   } catch {
-    return { error: "Could not read that order from Shopify. It may have been deleted." };
+    return {
+      error:
+        "Could not read that order from Shopify. It may have been deleted.",
+    };
   }
 
   const orderSnapshot = buildOrderSnapshot(orderContext);
   const customerPhone =
     orderContext.shippingAddress?.phone ?? orderContext.customerPhone ?? "";
   const customerName =
-    orderContext.shippingAddress?.name ?? orderContext.customerName ?? "Customer";
+    orderContext.shippingAddress?.name ??
+    orderContext.customerName ??
+    "Customer";
+  const recipientPhone = callsCarrier ? carrierPhone : customerPhone;
+  const normalizedRecipient = normalizePhone(recipientPhone);
+  if (!normalizedRecipient) {
+    return {
+      error:
+        "The selected recipient does not have a valid phone number in an approved region.",
+    };
+  }
 
   if (!callsCarrier && (!orderContext.customerId || !customerPhone)) {
-    return { error: "This order needs a customer and phone number before outreach can start." };
+    return {
+      error:
+        "This order needs a customer and phone number before outreach can start.",
+    };
+  }
+
+  let consentId: string | undefined;
+  if (!callsCarrier && orderContext.customerId) {
+    const consent = await findActiveCallConsent({
+      shopId: settings.id,
+      shopifyOrderId: orderId,
+      shopifyCustomerId: orderContext.customerId,
+      phone: normalizedRecipient.e164,
+      purpose: "ORDER_SUPPORT",
+    });
+    if (!consent) {
+      return {
+        error: "This customer has not granted active per-order call consent.",
+      };
+    }
+    consentId = consent.id;
+  }
+  if (callsCarrier) {
+    const verifiedCarrier = await prisma.carrierEndpoint.findUnique({
+      where: {
+        shopId_phoneHash: {
+          shopId: settings.id,
+          phoneHash: hashForMatching(normalizedRecipient.e164),
+        },
+      },
+    });
+    if (!verifiedCarrier?.enabled || !verifiedCarrier.verifiedAt) {
+      return {
+        error:
+          "Verify this official carrier support number in Settings before calling it.",
+      };
+    }
   }
 
   try {
@@ -237,9 +310,11 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       shopifyOrderName: orderContext.orderName,
       shopifyCustomerId: orderContext.customerId ?? "third-party-carrier-leg",
       issueType,
-      customerPhone: customerPhone || carrierPhone, // fallback for carrier leg
-      customerName,
+      customerPhone: recipientPhone,
+      customerName: callsCarrier ? undefined : customerName,
+      consentId,
       orderSnapshot,
+      requestedBy: { type: "merchant", id: session.id },
     });
 
     const callPlan = await buildCallPlan({
@@ -248,9 +323,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
       storeName: settings.storeName,
       agentName: settings.agentName,
       issueType,
-      customerPhone: customerPhone || carrierPhone,
-      region: "US",
+      customerPhone: recipientPhone,
+      region: normalizedRecipient.region,
       locale: settings.defaultLocale,
+      merchantApprovedBy: callsCarrier ? session.id : undefined,
       verificationCode: supportCase.verificationCode,
       orderSnapshot,
       orderName: orderContext.orderName,
@@ -263,7 +339,10 @@ export const action = async ({ request }: ActionFunctionArgs) => {
               shipDate: orderContext.createdAt,
               deliveryClaimDate: "",
               shipToSummary: orderContext.shippingAddress
-                ? [orderContext.shippingAddress.address1, orderContext.shippingAddress.city]
+                ? [
+                    orderContext.shippingAddress.address1,
+                    orderContext.shippingAddress.city,
+                  ]
                     .filter(Boolean)
                     .join(", ")
                 : "the address on the order",
@@ -271,28 +350,38 @@ export const action = async ({ request }: ActionFunctionArgs) => {
           }
         : {
             stuckOrder: {
-              blockerDescription: "Order is unfulfilled and needs a customer decision.",
+              blockerDescription:
+                "Order is unfulfilled and needs a customer decision.",
               emailAttempts: 0,
             },
           }),
     });
 
-    const call = await submitCall({
-      supportCaseId: supportCase.caseId,
-      callPlanId: callPlan.callPlanId,
-      shopId: settings.id,
+    await enqueueJob(
+      JOBS.CALL_PLACEMENT,
+      {
+        supportCaseId: supportCase.caseId,
+        callPlanId: callPlan.callPlanId,
+        shopId: settings.id,
+      },
+      `call-plan:${callPlan.callPlanId}`,
+    );
+    await prisma.supportCase.update({
+      where: { id: supportCase.caseId },
+      data: { status: "CALL_SUBMITTED" },
     });
 
     return {
       ok: true,
       caseReference: supportCase.publicReference,
       target: callsCarrier ? carrierName : customerName || "customer",
-      status: call.status,
+      status: "QUEUED",
     };
   } catch (error: unknown) {
     const appError = error as { userMessage?: string; message?: string };
     return {
-      error: appError.userMessage ?? appError.message ?? "Could not start the call.",
+      error:
+        appError.userMessage ?? appError.message ?? "Could not start the call.",
     };
   }
 };
@@ -300,17 +389,22 @@ export const action = async ({ request }: ActionFunctionArgs) => {
 // ── Money formatter ────────────────────────────────────────────
 
 function fmt(minor: number, currency: string) {
-  return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(minor / 100);
+  return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(
+    minor / 100,
+  );
 }
 
 function daysAgo(iso: string): number {
-  return Math.floor((Date.now() - new Date(iso).getTime()) / (24 * 60 * 60 * 1000));
+  return Math.floor(
+    (Date.now() - new Date(iso).getTime()) / (24 * 60 * 60 * 1000),
+  );
 }
 
 // ── UI ─────────────────────────────────────────────────────────
 
 export default function Outreach() {
-  const { orders, configured, demoCarrierPhone } = useLoaderData<typeof loader>();
+  const { orders, configured, demoCarrierPhone } =
+    useLoaderData<typeof loader>();
   const actionData = useActionData<typeof action>();
   const nav = useNavigation();
   const busy = nav.state === "submitting";
@@ -319,19 +413,29 @@ export default function Outreach() {
     <s-page heading="Outreach">
       <s-section heading="Recent orders">
         <s-text>
-          Call a customer about an unfulfilled-order blocker, or call the carrier
-          when a delivery problem has no useful API. Phone is the escalation
-          channel; the result still goes through your policy.
+          Call a customer about an unfulfilled-order blocker, or call the
+          carrier when a delivery problem has no useful API. Phone is the
+          escalation channel; the result still goes through your policy.
         </s-text>
 
         {!configured && (
-          <s-box padding="base" borderWidth="base" borderRadius="base" background="subdued">
-            <s-text>Complete setup in Settings first — your store needs a name and an agent.</s-text>
+          <s-box
+            padding="base"
+            borderWidth="base"
+            borderRadius="base"
+            background="subdued"
+          >
+            <s-text>
+              Complete setup in Settings first — your store needs a name and an
+              agent.
+            </s-text>
           </s-box>
         )}
 
         {actionData?.error && (
-          <s-banner tone="critical"><s-text>{actionData.error}</s-text></s-banner>
+          <s-banner tone="critical">
+            <s-text>{actionData.error}</s-text>
+          </s-banner>
         )}
 
         {actionData?.ok && (
@@ -344,13 +448,23 @@ export default function Outreach() {
         )}
 
         {orders.length === 0 && configured && (
-          <s-box padding="base" borderWidth="base" borderRadius="base" background="subdued">
+          <s-box
+            padding="base"
+            borderWidth="base"
+            borderRadius="base"
+            background="subdued"
+          >
             <s-text>No recent orders are available.</s-text>
           </s-box>
         )}
 
         {orders.map((order) => (
-          <s-box key={order.orderId} padding="base" borderWidth="base" borderRadius="base">
+          <s-box
+            key={order.orderId}
+            padding="base"
+            borderWidth="base"
+            borderRadius="base"
+          >
             <s-stack direction="block" gap="base">
               <s-heading>
                 {order.orderName} — {order.customerName}
@@ -360,9 +474,16 @@ export default function Outreach() {
                 {order.fulfillmentStatus.toLowerCase()} ·{" "}
                 {daysAgo(order.createdAt)} days old
                 {order.shippingAddress && (
-                  <> · {[order.shippingAddress.city, order.shippingAddress.province]
-                    .filter(Boolean)
-                    .join(", ")}</>
+                  <>
+                    {" "}
+                    ·{" "}
+                    {[
+                      order.shippingAddress.city,
+                      order.shippingAddress.province,
+                    ]
+                      .filter(Boolean)
+                      .join(", ")}
+                  </>
                 )}
               </s-text>
               {!order.customerPhone && (
@@ -373,45 +494,52 @@ export default function Outreach() {
                 <Form method="post" style={{ display: "inline" }}>
                   <input type="hidden" name="orderId" value={order.orderId} />
                   <input type="hidden" name="leg" value="customer" />
-                  <s-button type="submit" disabled={busy || !order.customerPhone || order.fulfillmentStatus !== "UNFULFILLED"}>
+                  <s-button
+                    type="submit"
+                    disabled={
+                      busy ||
+                      !order.customerPhone ||
+                      order.fulfillmentStatus !== "UNFULFILLED"
+                    }
+                  >
                     Resolve blocker with customer
                   </s-button>
                 </Form>
               </s-stack>
 
-              <details>
-                <summary>Open carrier call setup</summary>
+              <s-box padding="base" borderWidth="base" borderRadius="base">
+                <s-heading>Carrier call setup</s-heading>
                 <Form method="post">
                   <input type="hidden" name="orderId" value={order.orderId} />
                   <input type="hidden" name="leg" value="carrier" />
-                  <s-form-layout>
+                  <s-stack direction="block" gap="base">
                     <s-text-field
                       name="carrierName"
                       label="Carrier"
                       placeholder="UPS / FedEx / DHL"
-                      defaultValue={order.carrierName}
+                      value={order.carrierName}
                       disabled={busy}
                     />
                     <s-text-field
                       name="carrierPhone"
-                      label="Support phone (a number you control for the demo)"
+                      label="Verified official carrier support phone"
                       placeholder="+1..."
-                      defaultValue={demoCarrierPhone}
+                      value={demoCarrierPhone}
                       disabled={busy}
                     />
                     <s-text-field
                       name="trackingNumber"
                       label="Tracking number"
                       placeholder="Optional"
-                      defaultValue={order.trackingNumber}
+                      value={order.trackingNumber}
                       disabled={busy}
                     />
                     <s-button type="submit" variant="primary" disabled={busy}>
                       {busy ? "Starting call…" : "Call carrier"}
                     </s-button>
-                  </s-form-layout>
+                  </s-stack>
                 </Form>
-              </details>
+              </s-box>
             </s-stack>
           </s-box>
         ))}

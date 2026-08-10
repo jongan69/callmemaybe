@@ -8,7 +8,7 @@
  *   npx tsx scripts/verify-calle.ts
  *       Preflight only. Checks credentials and contract wiring. Places NO call.
  *
- *   npx tsx scripts/verify-calle.ts --call +15551234567
+ *   npx tsx scripts/verify-calle.ts --call "$TEST_CUSTOMER_PHONE"
  *       Places ONE real outbound call and waits for the terminal result.
  *       This consumes one of your CALL-E call credits.
  */
@@ -115,7 +115,7 @@ async function main() {
   if (!phone) {
     console.log(
       "\nPreflight complete. No call was placed.\n" +
-        "To place one real call:  npx tsx scripts/verify-calle.ts --call +15551234567\n",
+        "To place one real call, pass --call with the E.164 number from TEST_CUSTOMER_PHONE.\n",
     );
     return;
   }
@@ -125,7 +125,9 @@ async function main() {
     process.exit(1);
   }
 
-  console.log(`\nPlacing ONE real call to ${phone}. This uses a call credit.`);
+  console.log(
+    `\nPlacing ONE real call to a number ending ${phone.slice(-4)}. This uses a call credit.`,
+  );
 
   const created = await provider.createCall({
     recipientPhone: phone,
@@ -162,7 +164,10 @@ async function main() {
     `${call.completionConfidenceScore ?? "n/a"} (${call.completionConfidenceLabel ?? "n/a"})`,
   );
   line("summary", call.summary ?? "n/a");
-  line("transcript turns", call.transcript ? call.transcript.split("\n").length : 0);
+  line(
+    "transcript turns",
+    call.transcript ? call.transcript.split("\n").length : 0,
+  );
   line("evidence items", call.evidence?.length ?? 0);
 
   console.log("\nStructured result");

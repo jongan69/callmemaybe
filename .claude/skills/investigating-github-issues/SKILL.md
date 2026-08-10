@@ -55,6 +55,7 @@ This repo is the **React Router template** for Shopify apps. It is a single-app 
 - **Purpose**: provides a working starting point, not a library
 
 Issues here are usually about:
+
 1. Template bugs (auth flow, session handling, webhook registration, embedded app bootstrapping)
 2. Onboarding / "it doesn't start" reports (often CLI or Node version issues)
 3. Documentation / clarity of comments in the template
@@ -65,6 +66,7 @@ Many issues belong in `Shopify/shopify-app-js` (where `@shopify/shopify-app-reac
 ## Early Exit Criteria
 
 Before running the full process, check if you can stop early:
+
 - **Clear duplicate**: If Step 3 finds an identical open issue with active discussion, stop after documenting the duplicate link.
 - **Wrong repo**: If the issue is about library behavior (e.g., `authenticate.admin`, session storage internals), redirect to `Shopify/shopify-app-js` and stop.
 - **Insufficient information**: If the issue has no reproducible details and no version info, skip to the report and recommend the author provide Node/pnpm/CLI versions and reproduction steps.
@@ -80,6 +82,7 @@ gh issue view <issue-url> --json title,body,author,labels,comments,createdAt,upd
 ```
 
 Extract:
+
 - Title and description
 - Author and their context
 - Existing labels and comments
@@ -97,6 +100,7 @@ git log --oneline -20          # recent changes to the template
 ```
 
 Also check the pinned versions of key dependencies in `package.json`:
+
 - `@shopify/shopify-app-react-router`
 - `@shopify/shopify-api`
 - `react-router`
@@ -127,6 +131,7 @@ Also consider searching `Shopify/shopify-app-js` for the same terms — many tem
 ### Step 4: Attempt Code-Level Reproduction
 
 Before diving into code, verify the reported behavior:
+
 - Check if the described behavior matches what the current template would produce
 - If the issue includes a code snippet or reproduction steps, trace through the relevant code paths (`app/shopify.server.ts`, `app/routes/*`, `prisma/schema.prisma`)
 - If the issue references specific error messages, search for them in the template and, if absent, in `node_modules/@shopify/shopify-app-react-router` if the user reports a library-originated error
@@ -136,6 +141,7 @@ This doesn't require running the app — code-level verification is sufficient.
 ### Step 5: Investigate Relevant Code
 
 Based on the issue, similar issues found, and reproduction attempt, examine the template code:
+
 - Files and modules mentioned in the issue
 - `app/shopify.server.ts` for auth / session configuration
 - `app/routes/app.*` for embedded admin flows
@@ -146,6 +152,7 @@ Based on the issue, similar issues found, and reproduction attempt, examine the 
 ### Step 6: Classify and Analyze
 
 Apply version-based classification from `../shared/references/version-maintenance-policy.md`:
+
 - Is this a template bug, or a library bug surfacing in the template?
 - Is it solvable with a documentation or comment fix?
 - Does it require an upstream change in `shopify-app-js`?

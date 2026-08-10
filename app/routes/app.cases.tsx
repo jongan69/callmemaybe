@@ -14,7 +14,10 @@ export const loader = async ({ request }: LoaderFunctionArgs) => {
   const settings = await prisma.shopSettings.findUnique({
     where: { shopDomain: session.shop },
   });
-  const cases = await getCasesForShop(settings?.id ?? "", { status, issueType });
+  const cases = await getCasesForShop(settings?.id ?? "", {
+    status,
+    issueType,
+  });
 
   return {
     cases: cases.map((c) => ({
@@ -43,7 +46,8 @@ export default function CasesList() {
       CALLING: "info",
       CANCELED: "neutral",
     };
-    const tone = (tones[status] ?? "info") as "success" | "caution" | "critical" | "info" | "neutral";
+    const tone = (tones[status] ?? "info") as
+      "success" | "caution" | "critical" | "info" | "neutral";
     return <s-badge tone={tone}>{status.replace(/_/g, " ")}</s-badge>;
   };
 
@@ -52,41 +56,66 @@ export default function CasesList() {
       <s-section heading="All cases">
         <s-stack direction="inline" gap="base">
           <s-link href="/app/cases">All</s-link>
-          <s-link href="/app/cases?status=AWAITING_APPROVAL">Awaiting Approval</s-link>
+          <s-link href="/app/cases?status=AWAITING_APPROVAL">
+            Awaiting Approval
+          </s-link>
           <s-link href="/app/cases?status=NEEDS_HUMAN">Needs Human</s-link>
           <s-link href="/app/cases?status=RESOLVED">Resolved</s-link>
         </s-stack>
 
         {cases.length === 0 ? (
-          <s-box padding="base" borderWidth="base" borderRadius="base" background="subdued">
+          <s-box
+            padding="base"
+            borderWidth="base"
+            borderRadius="base"
+            background="subdued"
+          >
             <s-text>No cases found matching the current filters.</s-text>
           </s-box>
         ) : (
           <s-table>
-            <thead>
-              <tr>
-                <th>Case</th>
-                <th>Order</th>
-                <th>Issue</th>
-                <th>Status</th>
-                <th>Resolution</th>
-                <th>Risk</th>
-                <th>Created</th>
-              </tr>
-            </thead>
-            <tbody>
+            <s-table-header-row>
+              <s-table-header listSlot="primary">Case</s-table-header>
+              <s-table-header listSlot="labeled">Order</s-table-header>
+              <s-table-header>Issue</s-table-header>
+              <s-table-header>Status</s-table-header>
+              <s-table-header>Resolution</s-table-header>
+              <s-table-header>Risk</s-table-header>
+              <s-table-header>Created</s-table-header>
+            </s-table-header-row>
+            <s-table-body>
               {cases.map((c) => (
-                <tr key={c.id}>
-                  <td><s-link href={`/app/cases/${c.id}`}>{c.id}</s-link></td>
-                  <td>{c.order}</td>
-                  <td><s-badge>{c.issue.replace(/_/g, " ")}</s-badge></td>
-                  <td>{statusBadge(c.status)}</td>
-                  <td>{c.resolutionMode ?? "—"}</td>
-                  <td>{c.riskLevel ? <s-badge tone={c.riskLevel === "HIGH" || c.riskLevel === "CRITICAL" ? "critical" : "info"}>{c.riskLevel}</s-badge> : "—"}</td>
-                  <td>{new Date(c.createdAt).toLocaleDateString()}</td>
-                </tr>
+                <s-table-row key={c.id}>
+                  <s-table-cell>
+                    <s-link href={`/app/cases/${c.id}`}>{c.id}</s-link>
+                  </s-table-cell>
+                  <s-table-cell>{c.order}</s-table-cell>
+                  <s-table-cell>
+                    <s-badge>{c.issue.replace(/_/g, " ")}</s-badge>
+                  </s-table-cell>
+                  <s-table-cell>{statusBadge(c.status)}</s-table-cell>
+                  <s-table-cell>{c.resolutionMode ?? "—"}</s-table-cell>
+                  <s-table-cell>
+                    {c.riskLevel ? (
+                      <s-badge
+                        tone={
+                          c.riskLevel === "HIGH" || c.riskLevel === "CRITICAL"
+                            ? "critical"
+                            : "info"
+                        }
+                      >
+                        {c.riskLevel}
+                      </s-badge>
+                    ) : (
+                      "—"
+                    )}
+                  </s-table-cell>
+                  <s-table-cell>
+                    {new Date(c.createdAt).toLocaleDateString()}
+                  </s-table-cell>
+                </s-table-row>
               ))}
-            </tbody>
+            </s-table-body>
           </s-table>
         )}
       </s-section>

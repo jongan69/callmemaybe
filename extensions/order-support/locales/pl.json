@@ -1,0 +1,9 @@
+{
+  "heading": "Wolisz pomoc telefoniczną?",
+  "body": "Możesz teraz wyrazić zgodę na telefon wsparcia AI dotyczący tego zamówienia, a potem poprosić o niego w swoim koncie klienta.",
+  "consentText": "Wyrażam zgodę na maksymalnie dwie próby telefonu wsparcia AI dotyczące tego zamówienia w ciągu siedmiu dni, w odstępie co najmniej 24 godzin. Rozmowy mogą być tymczasowo transkrybowane. Mogę wycofać zgodę w dowolnym momencie.",
+  "save": "Zapisz zgodę",
+  "saving": "Zapisywanie…",
+  "saved": "Zgoda zapisana",
+  "error": "Nie udało się zapisać zgody. Zaloguj się na konto klienta i spróbuj ponownie."
+}

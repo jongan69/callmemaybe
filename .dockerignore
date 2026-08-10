@@ -1,3 +1,16 @@
+.git
+.github
 .cache
+.react-router
+.shopify
 build
 node_modules
+.env
+.env.*
+!.env.example
+docs
+submission
+tests
+prisma/*.sqlite*
+database.sqlite
+npm-debug.log*

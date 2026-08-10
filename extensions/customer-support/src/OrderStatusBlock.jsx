@@ -1,24 +1,20 @@
 import "@shopify/ui-extensions/preact";
 import { render } from "preact";
-import { useOrder } from "@shopify/ui-extensions/preact";
 
 export default async () => {
   render(<OrderStatusBlock />, document.body);
 };
 
 function OrderStatusBlock() {
-  const order = useOrder();
-
-  // The order status block shows ResolveLine case status inline.
-  // Since we can't use hooks for async state, we use the attributes
-  // already available from the order context.
-
+  const order = shopify.order.value;
   if (!order) return null;
-
   return (
-    <s-banner tone="info">
+    <s-banner
+      tone="info"
+      heading={shopify.i18n.translate("orderSupportHeading")}
+    >
       <s-text>
-        Need help with this order? Select &quot;Get support&quot; to request an AI phone callback from our support team.
+        {shopify.i18n.translate("orderSupportBody", { order: order.name })}
       </s-text>
     </s-banner>
   );
