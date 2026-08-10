@@ -6,8 +6,7 @@ let provider: PhoneSupportProvider | null = null;
 
 export function getPhoneProvider(): PhoneSupportProvider {
   if (!provider) {
-    const mode = process.env.CALL_PROVIDER || "fake";
-    if (mode === "fake" || process.env.CALLE_REAL_CALLS_ENABLED !== "true") {
+    if (!isCalleLiveMode()) {
       provider = getFakeProvider();
     } else {
       // Once both live-call gates are deliberately enabled, a configuration
@@ -21,17 +20,18 @@ export function getPhoneProvider(): PhoneSupportProvider {
 }
 
 export function isFakeMode(): boolean {
-  return (
-    process.env.CALL_PROVIDER !== "calle" ||
-    process.env.CALLE_REAL_CALLS_ENABLED !== "true"
-  );
+  return !isCalleLiveMode();
 }
 
 export function getProviderMode(): "fake" | "calle" {
-  if (process.env.CALL_PROVIDER === "calle" && process.env.CALLE_REAL_CALLS_ENABLED === "true") {
-    return "calle";
-  }
-  return "fake";
+  return isCalleLiveMode() ? "calle" : "fake";
+}
+
+function isCalleLiveMode(): boolean {
+  return (
+    process.env.CALL_PROVIDER === "calle" &&
+    process.env.CALLE_REAL_CALLS_ENABLED === "true"
+  );
 }
 
 export { getFakeProvider } from "./fake-calle.server";

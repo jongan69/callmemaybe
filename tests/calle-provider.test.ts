@@ -16,7 +16,7 @@ function providerWith(
 ) {
   return new CallePhoneSupportProvider(
     "test_key",
-    "https://api.example.test",
+    "https://api.heycall-e.com",
     async (input: Request) => {
       const raw = await input.clone().text();
       const captured: Captured = {
@@ -34,6 +34,22 @@ function providerWith(
     },
   );
 }
+
+describe("configuration", () => {
+  test("rejects a non-HTTPS CALL-E base URL", () => {
+    assert.throws(
+      () => new CallePhoneSupportProvider("test_key", "http://api.heycall-e.com"),
+      /official CALL-E origin/,
+    );
+  });
+
+  test("rejects a different CALL-E base URL host", () => {
+    assert.throws(
+      () => new CallePhoneSupportProvider("test_key", "https://attacker.example"),
+      /official CALL-E origin/,
+    );
+  });
+});
 
 // A terminal CallTask exactly as the API documents it.
 function callTaskFixture(overrides: Record<string, unknown> = {}) {

@@ -154,7 +154,9 @@ test script.
 
 The fixture provider is the default and places no calls. Real calling requires
 `CALL_PROVIDER=calle` **and** `CALLE_REAL_CALLS_ENABLED=true` — two independent
-switches, so a stray environment variable can't start dialling real numbers.
+exact switches, so misspellings and alternate casing remain in fixture mode.
+Credentialed requests are pinned to the official `https://api.heycall-e.com`
+origin; any other `CALLE_BASE_URL` is rejected before the client is created.
 
 `DEMO_CARRIER_PHONE` must be a line you control. Never point it at a real
 carrier's support number.

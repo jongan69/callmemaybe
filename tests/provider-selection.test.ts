@@ -1,0 +1,40 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import {
+  getFakeProvider,
+  getPhoneProvider,
+  getProviderMode,
+  isFakeMode,
+} from "../app/providers/index.server";
+
+test("live mode requires both exact gate values", () => {
+  const originalProvider = process.env.CALL_PROVIDER;
+  const originalLiveGate = process.env.CALLE_REAL_CALLS_ENABLED;
+
+  try {
+    process.env.CALL_PROVIDER = "calle";
+    process.env.CALLE_REAL_CALLS_ENABLED = "TRUE";
+
+    assert.equal(getProviderMode(), "fake");
+    assert.equal(isFakeMode(), true);
+
+    process.env.CALL_PROVIDER = "cale";
+    process.env.CALLE_REAL_CALLS_ENABLED = "true";
+
+    assert.equal(getProviderMode(), "fake");
+    assert.equal(isFakeMode(), true);
+    assert.strictEqual(getPhoneProvider(), getFakeProvider());
+  } finally {
+    if (originalProvider === undefined) {
+      delete process.env.CALL_PROVIDER;
+    } else {
+      process.env.CALL_PROVIDER = originalProvider;
+    }
+
+    if (originalLiveGate === undefined) {
+      delete process.env.CALLE_REAL_CALLS_ENABLED;
+    } else {
+      process.env.CALLE_REAL_CALLS_ENABLED = originalLiveGate;
+    }
+  }
+});
