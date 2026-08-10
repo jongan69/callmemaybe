@@ -237,10 +237,7 @@ export function validateCalleBaseUrl(baseUrl: string | undefined): string {
       `Refusing to send the CALL-E API key to "${parsed.origin}". CALLE_BASE_URL must be exactly ${OFFICIAL_CALLE_ORIGIN}.`,
     );
   }
-  if (
-    baseUrl !== OFFICIAL_CALLE_ORIGIN &&
-    baseUrl !== `${OFFICIAL_CALLE_ORIGIN}/`
-  ) {
+  if (baseUrl !== OFFICIAL_CALLE_ORIGIN) {
     throw new Error(
       `Refusing to use CALLE_BASE_URL "${baseUrl}". It must be the exact official CALL-E origin without normalization.`,
     );

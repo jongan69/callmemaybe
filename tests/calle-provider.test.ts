@@ -204,6 +204,7 @@ describe("base URL allowlist", () => {
     for (const bad of [
       " https://api.heycall-e.com",
       "HTTPS://api.heycall-e.com",
+      "https://api.heycall-e.com/",
       "https://api.heycall-e.com/v2",
       "https://api.heycall-e.com:443",
       "https://api.heycall-e.com:8443",

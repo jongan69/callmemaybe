@@ -183,6 +183,10 @@ describe("production runtime configuration", () => {
       /exact official CALL-E origin/i,
     );
     assert.throws(
+      () => validateCalleBaseUrl("https://api.heycall-e.com/"),
+      /exact official CALL-E origin/i,
+    );
+    assert.throws(
       () => validateCalleBaseUrl("https://api.heycall-e.com.attacker.invalid"),
       /refusing/i,
     );

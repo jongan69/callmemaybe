@@ -18,9 +18,12 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 COPY --from=builder /app /app
-RUN npm prune --omit=dev && npm cache clean --force
+RUN npm prune --omit=dev \
+  && npm cache clean --force \
+  && rm -rf /usr/local/lib/node_modules/npm \
+  && rm -f /usr/local/bin/npm /usr/local/bin/npx
 
 USER node
 EXPOSE 3000
 
-CMD ["npm", "run", "docker-start"]
+CMD ["node", "scripts/container-start.mjs"]

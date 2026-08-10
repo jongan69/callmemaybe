@@ -75,4 +75,7 @@ jobs:
           exit-code: "1"
           ignore-unfixed: true
           severity: HIGH,CRITICAL
-          scanners: vuln,secret,misconfig,license
+          # License classifications use policy severities and are not
+          # vulnerability findings. Keep the blocking release gate focused on
+          # exploitable risk and leaked credentials/configuration.
+          scanners: vuln,secret,misconfig

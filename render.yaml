@@ -16,7 +16,7 @@ services:
     autoDeployTrigger: checksPass
     dockerfilePath: ./Dockerfile
     healthCheckPath: /health/ready
-    preDeployCommand: npm run setup
+    preDeployCommand: node scripts/container-setup.mjs
     envVars: &productionEnv
       - key: NODE_ENV
         value: production
@@ -75,5 +75,5 @@ services:
     branch: main
     autoDeployTrigger: checksPass
     dockerfilePath: ./Dockerfile
-    dockerCommand: npm run worker
+    dockerCommand: node --import tsx app/worker.server.ts
     envVars: *productionEnv
