@@ -1,8 +1,9 @@
 # Local verification evidence
 
 Date: 2026-08-10
-Repository candidate under review:
-`66e9537430192de64d66139daefdb065b31f4b4c`. It adds the Render repository
+Repository candidate under review: the checked head of
+[`dev → main` PR #5](https://github.com/jongan69/callmemaybe/pull/5), whose
+immutable head SHA is recorded by GitHub Checks. It adds the Render repository
 binding and this evidence update to application code merge
 `33ffcd2fde5c3e4eb6c08bbe6955429b6f34e354` from
 [`dev → main` PR #4](https://github.com/jongan69/callmemaybe/pull/4).
