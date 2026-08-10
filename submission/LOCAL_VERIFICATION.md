@@ -1,14 +1,16 @@
 # Local verification evidence
 
 Date: 2026-08-10
-Code candidate: `33ffcd2fde5c3e4eb6c08bbe6955429b6f34e354`, merged by
-[`dev → main` PR #4](https://github.com/jongan69/callmemaybe/pull/4). Remote
-`main` and `dev` were aligned to this merge before the documentation-only
-follow-up.
+Repository candidate under review:
+`66e9537430192de64d66139daefdb065b31f4b4c`. It adds the Render repository
+binding and this evidence update to application code merge
+`33ffcd2fde5c3e4eb6c08bbe6955429b6f34e354` from
+[`dev → main` PR #4](https://github.com/jongan69/callmemaybe/pull/4).
 
 This evidence confirms repository-level checks only. Add the deployed service
 SHA, smoke-test results, and reviewer evidence from the exact live candidate
-before checking any live-environment or Devpost box.
+before checking any live-environment or Devpost box. No deployed service SHA or
+live smoke-test evidence exists yet, so all such boxes remain unchecked.
 
 ## Passing checks
 
