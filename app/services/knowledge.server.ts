@@ -1,5 +1,6 @@
 import prisma from "../db.server";
 import { sha256Hash } from "../lib/crypto.server";
+import { stripHtml } from "../lib/html-text";
 import type { AdminClient } from "./shopify-adapter.server";
 
 export async function syncShopPolicies(
@@ -152,33 +153,6 @@ export async function getKnowledgeForIssue(
     title: s.title,
     content: truncateContent(s.normalizedContent, 2000),
   }));
-}
-
-function stripHtml(html: string): string {
-  let text = "";
-  let inTag = false;
-  for (const character of html) {
-    if (character === "<") {
-      inTag = true;
-      text += " ";
-    } else if (character === ">" && inTag) {
-      inTag = false;
-    } else if (!inTag) {
-      text += character;
-    }
-  }
-
-  const entities: Record<string, string> = {
-    "&amp;": "&",
-    "&lt;": "<",
-    "&gt;": ">",
-    "&quot;": '"',
-    "&#39;": "'",
-  };
-  return text
-    .replace(/&(amp|lt|gt|quot|#39);/g, (entity) => entities[entity] ?? entity)
-    .replace(/\s+/g, " ")
-    .trim();
 }
 
 function truncateContent(content: string, maxLength: number): string {

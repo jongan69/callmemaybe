@@ -47,7 +47,7 @@ async function main() {
   if (!process.env.CALLE_API_KEY) {
     console.error(
       "FAIL  CALLE_API_KEY is not set. Add it to .env and re-run with:\n" +
-        "      node --env-file=.env node_modules/.bin/tsx scripts/verify-calle.ts",
+        "      bun x tsx scripts/verify-calle.ts",
     );
     process.exit(1);
   }
