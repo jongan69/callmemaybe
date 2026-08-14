@@ -255,7 +255,7 @@ export async function updateShippingAddress(
   try {
     const order = await fetchOrderContext(admin, orderId);
     before = buildOrderSnapshot(order);
-  } catch (e) {
+  } catch {
     throw createError(
       ErrorCodes.ORDER_NOT_FOUND,
       "Could not fetch order before address update",
@@ -370,7 +370,7 @@ export async function cancelOrder(
   try {
     const order = await fetchOrderContext(admin, orderId);
     before = buildOrderSnapshot(order);
-  } catch (e) {
+  } catch {
     throw createError(
       ErrorCodes.ORDER_NOT_FOUND,
       "Could not fetch order before cancellation",

@@ -155,13 +155,28 @@ export async function getKnowledgeForIssue(
 }
 
 function stripHtml(html: string): string {
-  return html
-    .replace(/<[^>]*>/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
+  let text = "";
+  let inTag = false;
+  for (const character of html) {
+    if (character === "<") {
+      inTag = true;
+      text += " ";
+    } else if (character === ">" && inTag) {
+      inTag = false;
+    } else if (!inTag) {
+      text += character;
+    }
+  }
+
+  const entities: Record<string, string> = {
+    "&amp;": "&",
+    "&lt;": "<",
+    "&gt;": ">",
+    "&quot;": '"',
+    "&#39;": "'",
+  };
+  return text
+    .replace(/&(amp|lt|gt|quot|#39);/g, (entity) => entities[entity] ?? entity)
     .replace(/\s+/g, " ")
     .trim();
 }

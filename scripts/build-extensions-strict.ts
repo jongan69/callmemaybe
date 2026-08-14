@@ -1,9 +1,9 @@
 import { spawnSync } from "node:child_process";
 
-const executable = process.platform === "win32" ? "npx.cmd" : "npx";
+const executable = process.platform === "win32" ? "bun.exe" : "bun";
 const result = spawnSync(
   executable,
-  ["shopify", "app", "build", "--no-color"],
+  ["x", "shopify", "app", "build", "--no-color"],
   {
     encoding: "utf8",
     env: { ...process.env, NO_COLOR: "1", CI: process.env.CI || "true" },
