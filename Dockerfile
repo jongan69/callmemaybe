@@ -19,6 +19,8 @@ WORKDIR /app
 ENV NODE_ENV=production
 
 COPY --from=builder /app /app
+RUN rm -rf /usr/local/lib/node_modules/npm \
+  && rm -f /usr/local/bin/npm /usr/local/bin/npx
 
 USER node
 EXPOSE 3000
