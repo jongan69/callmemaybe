@@ -5,10 +5,10 @@
  * template and result schema, so a pass here is evidence that the shipping
  * code path works against the live CALL-E API, not that a toy script does.
  *
- *   npx tsx scripts/verify-calle.ts
+ *   bun x tsx scripts/verify-calle.ts
  *       Preflight only. Checks credentials and contract wiring. Places NO call.
  *
- *   npx tsx scripts/verify-calle.ts --call "$TEST_CUSTOMER_PHONE"
+ *   bun x tsx scripts/verify-calle.ts --call "$TEST_CUSTOMER_PHONE"
  *       Places ONE real outbound call and waits for the terminal result.
  *       This consumes one of your CALL-E call credits.
  */
@@ -47,11 +47,11 @@ async function main() {
   if (!process.env.CALLE_API_KEY) {
     console.error(
       "FAIL  CALLE_API_KEY is not set. Add it to .env and re-run with:\n" +
-        "      node --env-file=.env node_modules/.bin/tsx scripts/verify-calle.ts",
+        "      bun x tsx scripts/verify-calle.ts",
     );
     process.exit(1);
   }
-  line("CALLE_API_KEY", `set (${process.env.CALLE_API_KEY.slice(0, 6)}…)`);
+  line("CALLE_API_KEY", "set");
   line("CALLE_BASE_URL", process.env.CALLE_BASE_URL ?? "(SDK default)");
 
   const provider = new CallePhoneSupportProvider();

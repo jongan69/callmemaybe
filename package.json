@@ -1,6 +1,7 @@
 {
   "name": "callmemaybe",
   "private": true,
+  "packageManager": "bun@1.3.14",
   "scripts": {
     "build": "react-router build",
     "build:extensions": "node --import tsx scripts/build-extensions-strict.ts",
@@ -13,8 +14,8 @@
     "start": "node --import tsx scripts/validate-runtime.ts && react-router-serve ./build/server/index.js",
     "worker": "node --import tsx app/worker.server.ts",
     "maintenance": "node --import tsx scripts/run-maintenance.ts",
-    "docker-start": "npm run setup && npm run start",
-    "setup": "prisma generate && prisma migrate deploy && npm run seed && npm run queue:setup",
+    "docker-start": "bun run setup && bun run start",
+    "setup": "prisma generate && prisma migrate deploy && bun run seed && bun run queue:setup",
     "lint": "eslint --ignore-path .gitignore --ignore-pattern 'extensions/*/shopify.d.ts' --cache --cache-location ./node_modules/.cache/eslint .",
     "shopify": "shopify",
     "prisma": "prisma",
@@ -28,9 +29,10 @@
     "validate:seed": "node --env-file-if-exists=.env --import tsx scripts/validate-seed.ts",
     "validate:release": "node --env-file-if-exists=.env --import tsx scripts/validate-release.ts",
     "validate:repo": "node --import tsx scripts/validate-repository.ts",
+    "audit:high": "node scripts/audit-dependencies.mjs",
     "test": "node --import tsx --test tests/*.test.ts",
-    "check": "npm run format:check && npm test && npm run typecheck && npm run lint && npm run build && npm run build:extensions",
-    "ci:verify": "npm run check && npm run validate:seed && npm run validate:repo && npm audit --audit-level=high --omit=dev"
+    "check": "bun run format:check && bun run test && bun run typecheck && bun run lint && bun run build && bun run build:extensions",
+    "ci:verify": "bun run check && bun run validate:seed && bun run validate:repo && bun run audit:high"
   },
   "type": "module",
   "engines": {
@@ -43,11 +45,10 @@
     "@react-router/fs-routes": "^7.12.0",
     "@react-router/node": "^7.12.0",
     "@react-router/serve": "^7.12.0",
+    "@sentry/node": "^10.69.0",
     "@shopify/app-bridge-react": "^4.2.4",
-    "@shopify/cli": "4.6.0",
     "@shopify/shopify-app-react-router": "^1.1.0",
     "@shopify/shopify-app-session-storage-prisma": "^9.0.0",
-    "@sentry/node": "^10.69.0",
     "isbot": "^5.1.31",
     "libphonenumber-js": "^1.13.10",
     "pg-boss": "^12.27.0",
@@ -61,13 +62,14 @@
   },
   "devDependencies": {
     "@shopify/api-codegen-preset": "^2.0.0",
+    "@shopify/cli": "4.6.0",
     "@shopify/polaris-types": "1.0.1",
     "@types/eslint": "^9.6.1",
     "@types/node": "^25.5.2",
     "@types/react": "^18.3.25",
     "@types/react-dom": "^18.3.7",
-    "@typescript-eslint/eslint-plugin": "^6.21.0",
-    "@typescript-eslint/parser": "^6.21.0",
+    "@typescript-eslint/eslint-plugin": "^8.67.0",
+    "@typescript-eslint/parser": "^8.67.0",
     "eslint": "^8.57.1",
     "eslint-import-resolver-typescript": "^4.4.4",
     "eslint-plugin-import": "^2.32.0",
@@ -86,6 +88,7 @@
     "@shopify/plugin-cloudflare"
   ],
   "overrides": {
+    "lodash": "4.18.1",
     "p-map": "^4.0.0"
   },
   "author": "jonathangan"
