@@ -8,7 +8,7 @@
   <a href="docs/ARCHITECTURE.md">Architecture</a> ·
   <a href="docs/RUN_LOCALLY.md">Local setup</a> ·
   <a href="SECURITY.md">Security</a> ·
-  <a href="submission/HACKATHON_DEVPOST.md">Hackathon submission</a> ·
+  <a href="devpost-submission.md">Hackathon submission</a> ·
   <a href="submission/HACKATHON_DEMO_SCRIPT.md">3-minute demo</a> ·
   <a href="submission/RELEASE_READINESS.md">Release readiness</a> ·
   <a href="submission/REVIEWER_INSTRUCTIONS.md">Reviewer walkthrough</a>
@@ -152,7 +152,7 @@ scans secrets/SAST, and builds/scans the container.
 ## Release status
 
 The active CALL-E hackathon package is
-[submission/HACKATHON_DEVPOST.md](submission/HACKATHON_DEVPOST.md), with the
+[devpost-submission.md](devpost-submission.md), with the
 recording plan and final gate beside it. Repository readiness does not by itself
 mean the external Devpost form, public video, or live deployment is complete.
 
