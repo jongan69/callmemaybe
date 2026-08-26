@@ -3,7 +3,7 @@
 
 client_id = "6938bd7b8b68a62d336d214686fad27f"
 name = "CallMeMaybe"
-application_url = "https://callmemaybe-hackathon.onrender.com"
+application_url = "https://callmemaybe-fc5w.onrender.com"
 embedded = true
 
 [access_scopes]
@@ -29,7 +29,7 @@ api_version = "2026-07"
 
 
 [auth]
-redirect_urls = [ "https://callmemaybe-hackathon.onrender.com/auth/callback" ]
+redirect_urls = [ "https://callmemaybe-fc5w.onrender.com/auth/callback" ]
 
 [build]
 include_config_on_deploy = true
