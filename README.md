@@ -8,7 +8,7 @@
   <a href="docs/ARCHITECTURE.md">Architecture</a> ·
   <a href="docs/RUN_LOCALLY.md">Local setup</a> ·
   <a href="SECURITY.md">Security</a> ·
-  <a href="submission/HACKATHON_DEVPOST.md">Hackathon submission</a> ·
+  <a href="devpost-submission.md">Hackathon submission</a> ·
   <a href="submission/HACKATHON_DEMO_SCRIPT.md">3-minute demo</a> ·
   <a href="submission/RELEASE_READINESS.md">Release readiness</a> ·
   <a href="submission/REVIEWER_INSTRUCTIONS.md">Reviewer walkthrough</a>
@@ -103,24 +103,24 @@ Requirements: Node 22.12, PostgreSQL 16+, a Shopify Partner development app and
 store, and optional CALL-E sandbox credentials.
 
 ```bash
-npm ci
+bun install --frozen-lockfile
 cp .env.example .env
 # Set DATABASE_URL and Shopify development credentials.
-npm run setup
-npm run dev
+bun run setup
+bun run dev
 ```
 
 Fixture mode is the development default and places no call. Live calling
 requires both `CALL_PROVIDER=calle` and `CALLE_REAL_CALLS_ENABLED=true`.
 Production refuses fixture or ambiguous modes, missing callback authentication,
 non-PostgreSQL databases, weak runtime secrets, dynamic third-party LLM task
-generation, and non-official CALL-E origins. `npm run validate:release` applies
+generation, and non-official CALL-E origins. `bun run validate:release` applies
 the additional gate selected by `RELEASE_TARGET`.
 
 Use only a phone number you control:
 
 ```bash
-TEST_CUSTOMER_PHONE=<AUTHORIZED_E164_NUMBER> npm run verify:calle
+TEST_CUSTOMER_PHONE=<AUTHORIZED_E164_NUMBER> bun run verify:calle
 ```
 
 The verification command performs credential preflight without placing a call
@@ -141,7 +141,7 @@ carrier's support number.
 ## Verification
 
 ```bash
-npm run check
+bun run check
 ```
 
 The command checks formatting, tests, types, lint, the production server build,
@@ -152,7 +152,7 @@ scans secrets/SAST, and builds/scans the container.
 ## Release status
 
 The active CALL-E hackathon package is
-[submission/HACKATHON_DEVPOST.md](submission/HACKATHON_DEVPOST.md), with the
+[devpost-submission.md](devpost-submission.md), with the
 recording plan and final gate beside it. Repository readiness does not by itself
 mean the external Devpost form, public video, or live deployment is complete.
 

@@ -73,11 +73,11 @@ swallowed.
 
 ```bash
 # Preflight. Checks credentials and contract wiring. Places NO call.
-npm run verify:calle
+bun run verify:calle
 
 # Places ONE real outbound call and waits for the terminal result.
 # Consumes one call credit.
-npm run verify:calle -- --call +15551234567
+bun run verify:calle -- --call +15551234567
 ```
 
 The script drives the app's own `CallePhoneSupportProvider` and its real task

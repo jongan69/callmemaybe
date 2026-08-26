@@ -12,7 +12,7 @@ all-language release scope means any unchecked hard gate is a submission stop.
 ## 1. Engineering and repository
 
 - [ ] Branch-protected release PR has required reviews and all CI checks green.
-- [ ] `npm run check` passes with zero server or extension warnings.
+- [ ] `bun run check` passes with zero server or extension warnings.
 - [ ] Empty PostgreSQL migration and production-safe seed validation pass.
 - [ ] Dependency, license, secret, SAST, and container scans have zero high or
       critical findings or an approved, documented exception.
