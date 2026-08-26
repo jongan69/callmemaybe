@@ -6,14 +6,14 @@ safety bar as production order automation.
 ## Local setup
 
 1. Use the Node version in `.nvmrc`.
-2. Run `npm ci`.
+2. Run `bun install --frozen-lockfile`.
 3. Copy `.env.example` to `.env` and keep fixture mode enabled.
-4. Run `npm run setup` and, optionally, `npm run seed` with `DEMO_SEED=true`.
-5. Start the Shopify development tunnel with `npm run dev`.
+4. Run `bun run setup` and, optionally, `bun run seed` with `DEMO_SEED=true`.
+5. Start the Shopify development tunnel with `bun run dev`.
 
 ## Before opening a pull request
 
-Run `npm run check`. Add a regression test for any change to schemas, policy,
+Run `bun run check`. Add a regression test for any change to schemas, policy,
 provider normalization, order snapshots, authorization, or redaction.
 
 Never weaken these invariants:
