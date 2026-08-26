@@ -30,7 +30,6 @@ export function runNode(args) {
 }
 
 export async function runProductionSetup() {
-  await runNode(["node_modules/prisma/build/index.js", "generate"]);
   await runNode(["node_modules/prisma/build/index.js", "migrate", "deploy"]);
   await runNode([
     "--env-file-if-exists=.env",
