@@ -17,6 +17,9 @@ database.sqlite
 .env.*
 !.env.example
 
+# Local Devpost workflow progress
+.devpost-hackathon-state.json
+
 yarn.lock
 pnpm-lock.yaml
 

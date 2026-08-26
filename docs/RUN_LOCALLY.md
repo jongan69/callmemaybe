@@ -11,7 +11,7 @@
 ## Setup
 
 ```bash
-npm ci
+bun install --frozen-lockfile
 cp .env.example .env
 ```
 
@@ -29,11 +29,11 @@ Generate a 32-byte encryption key and a long independent hash pepper using the
 commands documented in `.env.example`. Then:
 
 ```bash
-npm run setup
-npm run dev
+bun run setup
+bun run dev
 ```
 
-`npm run setup` generates Prisma, applies the PostgreSQL migration, seeds the 28
+`bun run setup` generates Prisma, applies the PostgreSQL migration, seeds the 28
 disabled-by-default regional records, and does not create demo customers unless
 `DEMO_SEED=true` is explicitly set.
 
@@ -41,7 +41,7 @@ disabled-by-default regional records, and does not create demo customers unless
 
 Set `CALL_PROVIDER=calle`, `CALLE_REAL_CALLS_ENABLED=true`, a CALL-E key, the
 exact `https://api.heycall-e.com` origin, a public Shopify app URL, and a 32+
-character callback token. `npm run verify:calle` validates credentials without
+character callback token. `bun run verify:calle` validates credentials without
 placing a call. The credentialed client intentionally rejects the test origin
 and every other configurable host.
 
@@ -53,7 +53,7 @@ is tracked in the repository.
 ## Verification
 
 ```bash
-npm run check
+bun run check
 ```
 
 This runs formatting, unit/integration tests, typecheck, lint, the production
@@ -66,6 +66,6 @@ dependency and secret/SAST checks, and scans the built container.
 Do not copy the development `.env` into production. Production validation
 refuses fixtures, billing bypass, missing callback authentication, weak keys,
 non-PostgreSQL databases, or non-official provider origins. Run
-`npm run validate:release` with the intended `RELEASE_TARGET` for the additional
+`bun run validate:release` with the intended `RELEASE_TARGET` for the additional
 hackathon or Shopify App Store gate. All regional records remain disabled until
 separately approved or explicitly enabled by the guarded isolated-demo seed.

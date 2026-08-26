@@ -103,24 +103,24 @@ Requirements: Node 22.12, PostgreSQL 16+, a Shopify Partner development app and
 store, and optional CALL-E sandbox credentials.
 
 ```bash
-npm ci
+bun install --frozen-lockfile
 cp .env.example .env
 # Set DATABASE_URL and Shopify development credentials.
-npm run setup
-npm run dev
+bun run setup
+bun run dev
 ```
 
 Fixture mode is the development default and places no call. Live calling
 requires both `CALL_PROVIDER=calle` and `CALLE_REAL_CALLS_ENABLED=true`.
 Production refuses fixture or ambiguous modes, missing callback authentication,
 non-PostgreSQL databases, weak runtime secrets, dynamic third-party LLM task
-generation, and non-official CALL-E origins. `npm run validate:release` applies
+generation, and non-official CALL-E origins. `bun run validate:release` applies
 the additional gate selected by `RELEASE_TARGET`.
 
 Use only a phone number you control:
 
 ```bash
-TEST_CUSTOMER_PHONE=<AUTHORIZED_E164_NUMBER> npm run verify:calle
+TEST_CUSTOMER_PHONE=<AUTHORIZED_E164_NUMBER> bun run verify:calle
 ```
 
 The verification command performs credential preflight without placing a call
@@ -141,7 +141,7 @@ carrier's support number.
 ## Verification
 
 ```bash
-npm run check
+bun run check
 ```
 
 The command checks formatting, tests, types, lint, the production server build,
