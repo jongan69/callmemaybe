@@ -149,15 +149,15 @@ therefore places no call and makes no live-deployment claim:
 - Required CALL-E community contribution:
   https://github.com/CALLE-AI/awesome-phone-call-agents/pull/125
 - Current Devpost project: https://devpost.com/software/callmemaybe
-- Demo video: **TODO — generated locally and awaiting public YouTube/Vimeo
-  upload**
+- Demo video: https://youtu.be/ZrjljcKYOuE
 - Functional hosted app: omitted; the Render/Shopify environment is not
   currently evidenced as available to judges.
 
 ## Official form fields
 
 - Submitter Type: `Individual`
-- Country of residence/incorporation: **TODO — submitter must provide**
+- Country of residence/incorporation: submitted directly to Devpost and not
+  duplicated in the repository
 - Organization name: omit
 - App status: `Newly created`
 - If pre-existing, explain what you updated: `New project created during the
@@ -167,17 +167,17 @@ production product or user base.`
 - Optional functional demo URL: omit
 - Project submission pull request URL:
   `https://github.com/CALLE-AI/awesome-phone-call-agents/pull/125`
-- Email address associated with the CALL-E account: **TODO — submitter must
-  provide**
+- Email address associated with the CALL-E account: submitted directly to
+  Devpost and not duplicated in the repository
 - Primary use case: `Order / exception follow-up`
 - One-sentence task: `Call a carrier or customer about a blocked Shopify order,
 return structured evidence, and safely apply the merchant-approved
 resolution.`
-- Eligible Age: **TODO — submitter must explicitly confirm**
-- Country eligibility: **TODO — submitter must explicitly confirm**
-- Conflict of interest: **TODO — submitter must explicitly confirm**
+- Eligible Age: confirmed directly on Devpost
+- Country eligibility: confirmed directly on Devpost
+- Conflict of interest: confirmed directly on Devpost
 
-## Draft readiness notes
+## Submission record
 
 - Verified: public repository, latest `main` commit, green hosted CI/CodeQL,
   public landing page, merged required community PR, local secret-pattern scan,
@@ -186,8 +186,7 @@ resolution.`
   asset/document links.
 - Generated locally: a 2:04, 1280×720 H.264/AAC technical walkthrough with SHA-256
   `f4dc9b31a3920e2c2c94aa5b66f57db3d9109cb339ec58a7f69b02b338d17cb1`.
-- Required before final Devpost submission: upload the video publicly and supply
-  the CALL-E account email, country, and explicit eligibility/conflict answers.
+- Submitted to CALL-E on August 26, 2026. Devpost submission ID: `1124680`.
 - Verified on the public Devpost page: the project already has a thumbnail.
 - No claim is made that the separate Shopify App Store or production deployment
   gates are complete.
